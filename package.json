@@ -1,0 +1,13 @@
+{
+  "name": "kwasinyo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "build": "npm --prefix client ci && npm --prefix client run build"
+  }
+}
+

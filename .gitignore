@@ -1,6 +1,8 @@
 **/node_modules/
 **/dist/
 **/.DS_Store
+.vercel/
+.gh/
 
 server/data/
 server/*.sqlite

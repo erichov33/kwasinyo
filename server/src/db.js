@@ -2,7 +2,11 @@ import Database from 'better-sqlite3'
 import fs from 'node:fs'
 import path from 'node:path'
 
-const dataDir = path.resolve(process.cwd(), 'data')
+const dataDir = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : process.env.VERCEL
+    ? path.resolve('/tmp', 'kwasinyo-data')
+    : path.resolve(process.cwd(), 'data')
 fs.mkdirSync(dataDir, { recursive: true })
 
 const dbPath = path.join(dataDir, 'kwasinyo.sqlite')
