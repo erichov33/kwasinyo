@@ -13,10 +13,12 @@ export function createApp() {
 
   const app = express()
   app.disable('x-powered-by')
+  app.set('trust proxy', 1)
   app.use(express.json({ limit: '200kb' }))
 
   const sessionSecret = process.env.SESSION_SECRET ?? crypto.randomBytes(32).toString('hex')
-  const isProd = process.env.NODE_ENV === 'production'
+  const isProd =
+    process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production' || process.env.VERCEL === '1'
   app.use(
     cookieSession({
       name: 'kwasinyo_session',
@@ -38,4 +40,3 @@ export function createApp() {
 
   return app
 }
-
