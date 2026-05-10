@@ -4,6 +4,10 @@
 .vercel/
 .gh/
 
+data/
+**/*.sqlite
+**/*.sqlite-journal
+
 server/data/
 server/*.sqlite
 server/*.sqlite-journal
