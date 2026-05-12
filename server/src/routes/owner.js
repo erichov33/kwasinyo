@@ -226,7 +226,10 @@ export function attachOwnerRoutes(app) {
 
     const hourRes = await query(
       `
-        SELECT substring(created_at from 12 for 2) AS hour, COUNT(*)::int AS "ticketsCount", COALESCE(SUM(price_cents), 0)::int AS "revenueCents"
+        SELECT
+          EXTRACT(HOUR FROM (created_at AT TIME ZONE 'UTC'))::int AS hour,
+          COUNT(*)::int AS "ticketsCount",
+          COALESCE(SUM(price_cents), 0)::int AS "revenueCents"
         FROM tickets
         WHERE day_date >= $1 AND day_date <= $2 AND voided_at IS NULL
         GROUP BY hour

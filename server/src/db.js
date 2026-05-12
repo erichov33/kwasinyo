@@ -142,6 +142,43 @@ const MIGRATIONS = [
       );
     `,
   },
+  {
+    id: '002_timestamps_and_day_date',
+    sql: `
+      ALTER TABLE schema_migrations
+        ALTER COLUMN applied_at TYPE timestamptz USING (CASE WHEN applied_at = '' THEN now() ELSE applied_at::timestamptz END);
+
+      ALTER TABLE users
+        ALTER COLUMN created_at TYPE timestamptz USING (CASE WHEN created_at = '' THEN now() ELSE created_at::timestamptz END);
+
+      ALTER TABLE price_matrix
+        ALTER COLUMN updated_at TYPE timestamptz USING (CASE WHEN updated_at = '' THEN now() ELSE updated_at::timestamptz END);
+
+      ALTER TABLE tickets
+        ALTER COLUMN day_date TYPE date USING (day_date::date),
+        ALTER COLUMN created_at TYPE timestamptz USING (CASE WHEN created_at = '' THEN now() ELSE created_at::timestamptz END),
+        ALTER COLUMN voided_at TYPE timestamptz USING (NULLIF(voided_at, '')::timestamptz);
+
+      ALTER TABLE ticket_audits
+        ALTER COLUMN created_at TYPE timestamptz USING (CASE WHEN created_at = '' THEN now() ELSE created_at::timestamptz END);
+
+      ALTER TABLE day_reconciliations
+        ALTER COLUMN day_date TYPE date USING (day_date::date),
+        ALTER COLUMN cashier_submitted_at TYPE timestamptz USING (CASE WHEN cashier_submitted_at = '' THEN now() ELSE cashier_submitted_at::timestamptz END),
+        ALTER COLUMN owner_confirmed_at TYPE timestamptz USING (NULLIF(owner_confirmed_at, '')::timestamptz);
+
+      ALTER TABLE customers
+        ALTER COLUMN created_at TYPE timestamptz USING (CASE WHEN created_at = '' THEN now() ELSE created_at::timestamptz END),
+        ALTER COLUMN updated_at TYPE timestamptz USING (CASE WHEN updated_at = '' THEN now() ELSE updated_at::timestamptz END);
+
+      ALTER TABLE customer_plates
+        ALTER COLUMN created_at TYPE timestamptz USING (CASE WHEN created_at = '' THEN now() ELSE created_at::timestamptz END);
+
+      ALTER TABLE loyalty_rewards
+        ALTER COLUMN granted_at TYPE timestamptz USING (CASE WHEN granted_at = '' THEN now() ELSE granted_at::timestamptz END),
+        ALTER COLUMN redeemed_at TYPE timestamptz USING (NULLIF(redeemed_at, '')::timestamptz);
+    `,
+  },
 ]
 
 async function applyMigrations() {
