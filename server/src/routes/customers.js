@@ -124,6 +124,23 @@ export function attachCustomerRoutes(app) {
 
     const rows = await query(
       `
+        WITH filtered AS (
+          SELECT c.id, c.name, c.phone, c.notes, c.active, c.created_at, c.updated_at
+          FROM customers c
+          WHERE c.active = 1
+            AND (
+              $1::text IS NULL
+              OR COALESCE(c.name, '') ILIKE $2
+              OR COALESCE(c.phone, '') ILIKE $2
+              OR EXISTS (
+                SELECT 1
+                FROM customer_plates cpq
+                WHERE cpq.customer_id = c.id AND cpq.plate ILIKE $2
+              )
+            )
+          ORDER BY c.id DESC
+          LIMIT $3 OFFSET $6
+        )
         SELECT
           c.id AS id,
           c.name AS name,
@@ -141,19 +158,11 @@ export function attachCustomerRoutes(app) {
             WHEN COUNT(t.id) > 0 THEN ROUND(COALESCE(SUM(t.price_cents), 0)::numeric / COUNT(t.id))::int
             ELSE 0
           END AS "avgRevenueCents"
-        FROM customers c
+        FROM filtered c
         LEFT JOIN customer_plates cp ON cp.customer_id = c.id
         LEFT JOIN tickets t ON t.plate = cp.plate AND t.voided_at IS NULL
-        WHERE c.active = 1
-          AND (
-            $1::text IS NULL
-            OR COALESCE(c.name, '') ILIKE $2
-            OR COALESCE(c.phone, '') ILIKE $2
-            OR COALESCE(cp.plate, '') ILIKE $2
-          )
         GROUP BY c.id
         ORDER BY c.id DESC
-        LIMIT $3 OFFSET $6
       `,
       [q, like, limit, day30, day90, offset],
     )
