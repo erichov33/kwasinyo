@@ -2,12 +2,15 @@ import { useEffect, useMemo, useState } from 'react'
 import { AppShell } from '../components/AppShell'
 import { api } from '../lib/api'
 import { formatMoneyCents, parseMoneyToCents } from '../lib/money'
+import { ownerNav } from '../lib/nav'
+import { usePriceBoard } from '../hooks/usePriceBoard'
 
 type VehicleType = { id: number; name: string; active: number; sortOrder: number }
 type ServiceType = { id: number; name: string; active: number; sortOrder: number }
 type PriceRow = { vehicleTypeId: number; serviceTypeId: number; priceCents: number }
 
 export function OwnerPriceBoard() {
+  const { data: board, error: boardError, reload } = usePriceBoard()
   const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([])
   const [serviceTypes, setServiceTypes] = useState<ServiceType[]>([])
   const [prices, setPrices] = useState<PriceRow[]>([])
@@ -16,18 +19,17 @@ export function OwnerPriceBoard() {
   const [error, setError] = useState<string | null>(null)
   const [savingKey, setSavingKey] = useState<string | null>(null)
 
-  const load = async () => {
-    const board = await api<{ vehicleTypes: VehicleType[]; serviceTypes: ServiceType[]; prices: PriceRow[] }>(
-      '/api/price-board',
-    )
-    setVehicleTypes(board.vehicleTypes)
-    setServiceTypes(board.serviceTypes)
-    setPrices(board.prices)
-  }
+  useEffect(() => {
+    if (!board) return
+    setVehicleTypes(board.vehicleTypes as VehicleType[])
+    setServiceTypes(board.serviceTypes as ServiceType[])
+    setPrices(board.prices as PriceRow[])
+  }, [board])
 
   useEffect(() => {
-    load().catch((e: any) => setError(e?.message ?? 'load_failed'))
-  }, [])
+    if (!boardError) return
+    setError(boardError)
+  }, [boardError])
 
   const priceMap = useMemo(() => {
     const m = new Map<string, number>()
@@ -39,7 +41,7 @@ export function OwnerPriceBoard() {
     setError(null)
     try {
       await api(`/api/vehicle-types/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
-      await load()
+      await reload()
     } catch (e: any) {
       setError(e?.message ?? 'save_failed')
     }
@@ -49,7 +51,7 @@ export function OwnerPriceBoard() {
     setError(null)
     try {
       await api(`/api/service-types/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
-      await load()
+      await reload()
     } catch (e: any) {
       setError(e?.message ?? 'save_failed')
     }
@@ -61,7 +63,7 @@ export function OwnerPriceBoard() {
     try {
       await api('/api/vehicle-types', { method: 'POST', body: JSON.stringify({ name: newVehicle.trim() }) })
       setNewVehicle('')
-      await load()
+      await reload()
     } catch (e: any) {
       setError(e?.message ?? 'add_failed')
     }
@@ -73,7 +75,7 @@ export function OwnerPriceBoard() {
     try {
       await api('/api/service-types', { method: 'POST', body: JSON.stringify({ name: newService.trim() }) })
       setNewService('')
-      await load()
+      await reload()
     } catch (e: any) {
       setError(e?.message ?? 'add_failed')
     }
@@ -86,7 +88,7 @@ export function OwnerPriceBoard() {
     try {
       const priceCents = parseMoneyToCents(value)
       await api('/api/prices', { method: 'PUT', body: JSON.stringify({ vehicleTypeId, serviceTypeId, priceCents }) })
-      await load()
+      await reload()
     } catch (e: any) {
       setError(e?.message ?? 'save_failed')
     } finally {
@@ -95,15 +97,7 @@ export function OwnerPriceBoard() {
   }
 
   return (
-    <AppShell
-      section="Price Board"
-      nav={[
-        { to: '/owner', label: 'Dashboard', icon: '⌂', end: true },
-        { to: '/owner/reports', label: 'Reports', icon: '▦' },
-        { to: '/owner/customers', label: 'Customers', icon: '◎' },
-        { to: '/owner/price-board', label: 'Price Board', icon: '≡' },
-      ]}
-    >
+    <AppShell section="Price Board" nav={ownerNav}>
       <div className="shellInner stack">
         {error ? <div className="alert alert--bad">{error}</div> : null}
 

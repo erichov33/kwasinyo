@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { Badge } from '../components/Badge'
 import { AppShell } from '../components/AppShell'
 import { api } from '../lib/api'
+import { ownerNav } from '../lib/nav'
 import { formatDayDate } from '../lib/date'
 import { formatMoneyCents } from '../lib/money'
 
@@ -120,15 +121,7 @@ export function OwnerDay() {
   }
 
   return (
-    <AppShell
-      section="Day View"
-      nav={[
-        { to: '/owner', label: 'Dashboard', icon: '⌂', end: true },
-        { to: '/owner/reports', label: 'Reports', icon: '▦' },
-        { to: '/owner/customers', label: 'Customers', icon: '◎' },
-        { to: '/owner/price-board', label: 'Price Board', icon: '≡' },
-      ]}
-    >
+    <AppShell section="Day View" nav={ownerNav}>
       <div className="shellInner stack">
         {error ? <div className="alert alert--bad">{error}</div> : null}
 

@@ -3,42 +3,20 @@ import { BottomBar } from '../components/BottomBar'
 import { Badge } from '../components/Badge'
 import { AppShell } from '../components/AppShell'
 import { api } from '../lib/api'
+import { cashierNav } from '../lib/nav'
+import { useTodaySummary } from '../hooks/useTodaySummary'
 import { formatMoneyCents, parseMoneyToCents } from '../lib/money'
 
-type Reconciliation = {
-  dayDate: string
-  ticketsCount: number
-  expectedRevenueCents: number
-  expectedCashCents: number
-  declaredCashCents: number
-  discrepancyCashCents: number
-  cashierSubmittedAt: string
-  ownerConfirmedAt: string | null
-  ownerNote: string | null
-}
-
-type Summary = {
-  dayDate: string
-  ticketsCount: number
-  expectedRevenueCents: number
-  expectedCashCents: number
-  reconciliation: Reconciliation | null
-}
-
 export function CashierCloseout() {
-  const [summary, setSummary] = useState<Summary | null>(null)
+  const { data: summary, error: loadError, reload } = useTodaySummary()
   const [declaredInput, setDeclaredInput] = useState('')
   const [error, setError] = useState<string | null>(null)
-
-  const load = async () => {
-    const s = await api<Summary>('/api/closeout/today-summary')
-    setSummary(s)
-    if (s.reconciliation) setDeclaredInput(String((s.reconciliation.declaredCashCents / 100).toFixed(2)))
-  }
+  const showError = error ?? loadError
 
   useEffect(() => {
-    load()
-  }, [])
+    if (!summary?.reconciliation) return
+    setDeclaredInput(String((summary.reconciliation.declaredCashCents / 100).toFixed(2)))
+  }, [summary?.reconciliation])
 
   const declaredCashCents = useMemo(() => parseMoneyToCents(declaredInput), [declaredInput])
 
@@ -52,7 +30,7 @@ export function CashierCloseout() {
         method: 'POST',
         body: JSON.stringify({ declaredCashCents }),
       })
-      await load()
+      await reload()
     } catch (err: any) {
       setError(err?.message ?? 'submit_failed')
     }
@@ -66,13 +44,7 @@ export function CashierCloseout() {
   }
 
   return (
-    <AppShell
-      section="Cashier"
-      nav={[
-        { to: '/cashier', label: 'New Ticket', icon: '+', end: true },
-        { to: '/cashier/closeout', label: 'Close Day', icon: '✓' },
-      ]}
-    >
+    <AppShell section="Cashier" nav={cashierNav}>
       <div className="shellInner page--with-bottom">
         <div className="stack">
           <div className="card">
@@ -86,7 +58,7 @@ export function CashierCloseout() {
                 <Badge tone="neutral">Pending</Badge>
               )}
             </div>
-            {error ? <div className="alert alert--bad">{error}</div> : null}
+            {showError ? <div className="alert alert--bad">{showError}</div> : null}
 
             {summary ? (
               <>

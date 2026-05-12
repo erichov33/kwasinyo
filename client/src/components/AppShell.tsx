@@ -1,8 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import type React from 'react'
 import { useAuth } from '../state/auth'
-
-type NavItem = { to: string; label: string; icon: string; end?: boolean }
+import type { NavItem } from '../lib/nav'
 
 export function AppShell({
   section,

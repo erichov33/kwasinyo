@@ -3,19 +3,17 @@ import pg from 'pg'
 const { Pool } = pg
 
 const connectionString = process.env.DATABASE_URL ?? process.env.SUPABASE_DATABASE_URL ?? ''
-if (!connectionString) {
-  throw new Error('Missing DATABASE_URL (Supabase Postgres connection string)')
-}
-
 const sslEnabled = process.env.PGSSL === 'false' ? false : { rejectUnauthorized: false }
 
-export const pool = new Pool({ connectionString, ssl: sslEnabled })
+export const pool = connectionString ? new Pool({ connectionString, ssl: sslEnabled }) : null
 
 export async function query(text, params = []) {
+  if (!pool) throw new Error('Missing DATABASE_URL (Supabase Postgres connection string)')
   return pool.query(text, params)
 }
 
 export async function withTx(fn) {
+  if (!pool) throw new Error('Missing DATABASE_URL (Supabase Postgres connection string)')
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
@@ -450,4 +448,8 @@ export async function initDb() {
 export async function isBootstrapped() {
   const r = await query('SELECT COUNT(*)::int AS c FROM users')
   return (r.rows[0]?.c ?? 0) > 0
+}
+
+export function getMigrationsSql() {
+  return MIGRATIONS.map((m) => `-- ${m.id}\n${String(m.sql).trim()}\n`).join('\n')
 }

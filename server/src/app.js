@@ -17,9 +17,14 @@ export async function createApp() {
   app.set('trust proxy', 1)
   app.use(express.json({ limit: '200kb' }))
 
-  const sessionSecret = process.env.SESSION_SECRET ?? crypto.randomBytes(32).toString('hex')
   const isProd =
     process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production' || process.env.VERCEL === '1'
+
+  let sessionSecret = process.env.SESSION_SECRET ?? ''
+  if (isProd && !sessionSecret) {
+    throw new Error('Missing SESSION_SECRET in production')
+  }
+  if (!sessionSecret) sessionSecret = crypto.randomBytes(32).toString('hex')
   app.use(
     cookieSession({
       name: 'kwasinyo_session',
@@ -39,6 +44,18 @@ export async function createApp() {
   attachCustomerRoutes(app)
 
   app.get('/api/health', (_req, res) => res.json({ ok: true }))
+
+  app.use((err, _req, res, next) => {
+    if (res.headersSent) return next(err)
+    const status = typeof err?.status === 'number' ? err.status : 500
+    if (status >= 500) {
+      try {
+        process.stderr.write(`${err?.stack ?? String(err)}\n`)
+      } catch {}
+      return res.status(500).json({ error: 'internal_error' })
+    }
+    return res.status(status).json({ error: err?.message ?? 'request_failed' })
+  })
 
   return app
 }

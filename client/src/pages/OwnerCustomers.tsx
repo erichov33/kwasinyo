@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
 import { api } from '../lib/api'
 import { formatMoneyCents } from '../lib/money'
+import { ownerNav } from '../lib/nav'
 
 type CustomerRow = {
   id: number
@@ -86,15 +87,7 @@ export function OwnerCustomers() {
   }
 
   return (
-    <AppShell
-      section="Customers"
-      nav={[
-        { to: '/owner', label: 'Dashboard', icon: '⌂', end: true },
-        { to: '/owner/reports', label: 'Reports', icon: '▦' },
-        { to: '/owner/customers', label: 'Customers', icon: '◎' },
-        { to: '/owner/price-board', label: 'Price Board', icon: '≡' },
-      ]}
-    >
+    <AppShell section="Customers" nav={ownerNav}>
       <div className="shellInner stack">
         <div className="card">
           <div className="row">

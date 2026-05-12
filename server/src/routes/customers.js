@@ -111,58 +111,70 @@ export function attachCustomerRoutes(app) {
     const parsed = schema.safeParse(req.query)
     if (!parsed.success) return res.status(400).json({ error: 'invalid_query' })
 
-    const q = parsed.data.q ? parsed.data.q.trim() : ''
+    const q = parsed.data.q ? parsed.data.q.trim() : null
     const limit = parsed.data.limit ?? 50
     const offset = parsed.data.offset ?? 0
 
-    const like = `%${q.replaceAll('%', '').replaceAll('_', '')}%`
+    const cleaned = q ? q.replaceAll('%', '').replaceAll('_', '') : ''
+    const like = q ? `%${cleaned}%` : null
 
-    const rows = q
-      ? await query(
-          `
-            SELECT DISTINCT
-              c.id AS id,
-              c.name AS name,
-              c.phone AS phone,
-              c.notes AS notes,
-              c.active AS active,
-              c.created_at AS "createdAt",
-              c.updated_at AS "updatedAt"
-            FROM customers c
-            LEFT JOIN customer_plates cp ON cp.customer_id = c.id
-            WHERE c.active = 1 AND (
-              c.name ILIKE $1 OR c.phone ILIKE $1 OR cp.plate ILIKE $2
-            )
-            ORDER BY c.id DESC
-            LIMIT $3 OFFSET $4
-          `,
-          [like, like.toUpperCase(), limit, offset],
-        )
-      : await query(
-          `
-            SELECT
-              c.id AS id,
-              c.name AS name,
-              c.phone AS phone,
-              c.notes AS notes,
-              c.active AS active,
-              c.created_at AS "createdAt",
-              c.updated_at AS "updatedAt"
-            FROM customers c
-            WHERE c.active = 1
-            ORDER BY c.id DESC
-            LIMIT $1 OFFSET $2
-          `,
-          [limit, offset],
-        )
+    const today = getLocalDayDate()
+    const day30 = addDays(today, -29)
+    const day90 = addDays(today, -89)
 
-    const data = await Promise.all(
-      rows.rows.map(async (c) => {
-        const plates = await getCustomerPlateList(c.id)
-        const stats = await computeCustomerStats(c.id)
-        return { ...c, plates, stats }
-      }),
+    const rows = await query(
+      `
+        SELECT
+          c.id AS id,
+          c.name AS name,
+          c.phone AS phone,
+          c.notes AS notes,
+          c.active AS active,
+          c.created_at AS "createdAt",
+          c.updated_at AS "updatedAt",
+          COALESCE(array_agg(DISTINCT cp.plate ORDER BY cp.plate) FILTER (WHERE cp.plate IS NOT NULL), '{}'::text[]) AS plates,
+          COUNT(t.id)::int AS "totalVisits",
+          MAX(t.created_at) AS "lastVisitAt",
+          COUNT(t.id) FILTER (WHERE t.day_date >= $4::date)::int AS "visitsLast30",
+          COUNT(t.id) FILTER (WHERE t.day_date >= $5::date)::int AS "visitsLast90",
+          CASE
+            WHEN COUNT(t.id) > 0 THEN ROUND(COALESCE(SUM(t.price_cents), 0)::numeric / COUNT(t.id))::int
+            ELSE 0
+          END AS "avgRevenueCents"
+        FROM customers c
+        LEFT JOIN customer_plates cp ON cp.customer_id = c.id
+        LEFT JOIN tickets t ON t.plate = cp.plate AND t.voided_at IS NULL
+        WHERE c.active = 1
+          AND (
+            $1::text IS NULL
+            OR COALESCE(c.name, '') ILIKE $2
+            OR COALESCE(c.phone, '') ILIKE $2
+            OR COALESCE(cp.plate, '') ILIKE $2
+          )
+        GROUP BY c.id
+        ORDER BY c.id DESC
+        LIMIT $3 OFFSET $6
+      `,
+      [q, like, limit, day30, day90, offset],
     )
+
+    const data = rows.rows.map((c) => ({
+      id: Number(c.id),
+      name: c.name,
+      phone: c.phone,
+      notes: c.notes,
+      active: c.active,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+      plates: c.plates ?? [],
+      stats: {
+        totalVisits: c.totalVisits ?? 0,
+        lastVisitAt: c.lastVisitAt ?? null,
+        visitsLast30: c.visitsLast30 ?? 0,
+        visitsLast90: c.visitsLast90 ?? 0,
+        avgRevenueCents: c.avgRevenueCents ?? 0,
+      },
+    }))
 
     res.json({ customers: data })
   })

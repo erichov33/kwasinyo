@@ -1,35 +1,18 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ButtonGrid } from '../components/ButtonGrid'
 import { BottomBar } from '../components/BottomBar'
 import { Badge } from '../components/Badge'
 import { AppShell } from '../components/AppShell'
 import { api } from '../lib/api'
+import { cashierNav } from '../lib/nav'
+import { usePriceBoard } from '../hooks/usePriceBoard'
+import { useTodaySummary } from '../hooks/useTodaySummary'
+import { useTodayTickets } from '../hooks/useTodayTickets'
 import { formatMoneyCents, parseMoneyToCents } from '../lib/money'
-
-type VehicleType = { id: number; name: string; active: number }
-type ServiceType = { id: number; name: string; active: number }
-type PriceRow = { vehicleTypeId: number; serviceTypeId: number; priceCents: number }
-
-type Ticket = {
-  ticketNumber: number
-  plate: string
-  vehicleTypeName: string
-  serviceTypeName: string
-  basePriceCents: number
-  discountCents: number
-  discountReason: string | null
-  overrideNote: string | null
-  priceCents: number
-  paymentMethod: 'cash' | 'card' | 'other'
-  priceOverridden: number
-  createdAt: string
-}
 
 export function CashierTicket() {
   const [plate, setPlate] = useState('')
-  const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([])
-  const [serviceTypes, setServiceTypes] = useState<ServiceType[]>([])
-  const [prices, setPrices] = useState<PriceRow[]>([])
+  const { data: board, error: boardError } = usePriceBoard({ activeOnly: true })
   const [vehicleTypeId, setVehicleTypeId] = useState<number | null>(null)
   const [serviceTypeId, setServiceTypeId] = useState<number | null>(null)
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'other'>('cash')
@@ -40,15 +23,14 @@ export function CashierTicket() {
   const [discountInput, setDiscountInput] = useState('')
   const [discountReason, setDiscountReason] = useState('')
   const [lastTicket, setLastTicket] = useState<{ ticketNumber: number; ticketLabel: string; priceCents: number } | null>(null)
-  const [tickets, setTickets] = useState<Ticket[]>([])
-  const [summary, setSummary] = useState<{
-    dayDate: string
-    ticketsCount: number
-    expectedRevenueCents: number
-    expectedCashCents: number
-    reconciliation: { cashierSubmittedAt: string; ownerConfirmedAt: string | null } | null
-  } | null>(null)
+  const { data: summary, error: summaryError, reload: reloadSummary } = useTodaySummary()
+  const { tickets, error: ticketsError, reload: reloadTickets } = useTodayTickets()
   const [error, setError] = useState<string | null>(null)
+  const showError = error ?? boardError ?? summaryError ?? ticketsError
+
+  const vehicleTypes = board?.vehicleTypes ?? []
+  const serviceTypes = board?.serviceTypes ?? []
+  const prices = board?.prices ?? []
 
   const priceKey = useMemo(() => {
     if (!vehicleTypeId || !serviceTypeId) return null
@@ -80,29 +62,6 @@ export function CashierTicket() {
   const finalValid = finalPriceCents !== null && finalPriceCents > 0
   const canIssue = Boolean(plate.trim() && vehicleTypeId && serviceTypeId && finalValid && discountValid)
 
-  const load = async () => {
-    const board = await api<{ vehicleTypes: VehicleType[]; serviceTypes: ServiceType[]; prices: PriceRow[] }>(
-      '/api/price-board?activeOnly=1',
-    )
-    setVehicleTypes(board.vehicleTypes)
-    setServiceTypes(board.serviceTypes)
-    setPrices(board.prices)
-    const s = await api<{
-      dayDate: string
-      ticketsCount: number
-      expectedRevenueCents: number
-      expectedCashCents: number
-      reconciliation: { cashierSubmittedAt: string; ownerConfirmedAt: string | null } | null
-    }>('/api/closeout/today-summary')
-    setSummary(s)
-    const today = await api<{ tickets: Ticket[] }>('/api/tickets/today')
-    setTickets(today.tickets)
-  }
-
-  useEffect(() => {
-    load()
-  }, [])
-
   const issue = async () => {
     setError(null)
     setLastTicket(null)
@@ -132,16 +91,7 @@ export function CashierTicket() {
       setDiscountInput('')
       setDiscountReason('')
       setPaymentMethod('cash')
-      const s = await api<{
-        dayDate: string
-        ticketsCount: number
-        expectedRevenueCents: number
-        expectedCashCents: number
-        reconciliation: { cashierSubmittedAt: string; ownerConfirmedAt: string | null } | null
-      }>('/api/closeout/today-summary')
-      setSummary(s)
-      const today = await api<{ tickets: Ticket[] }>('/api/tickets/today')
-      setTickets(today.tickets)
+      await Promise.all([reloadSummary(), reloadTickets()])
     } catch (err: any) {
       setError(err?.message ?? 'ticket_failed')
     }
@@ -231,13 +181,7 @@ export function CashierTicket() {
   }
 
   return (
-    <AppShell
-      section="Cashier"
-      nav={[
-        { to: '/cashier', label: 'New Ticket', icon: '+', end: true },
-        { to: '/cashier/closeout', label: 'Close Day', icon: '✓' },
-      ]}
-    >
+    <AppShell section="Cashier" nav={cashierNav}>
       <div className="shellInner page--with-bottom">
         <div className="stack">
           <div className="card">
@@ -245,7 +189,7 @@ export function CashierTicket() {
               <h1 className="h1">New Ticket</h1>
               {override ? <Badge tone="warn">Override</Badge> : discountCents > 0 ? <Badge tone="warn">Discount</Badge> : null}
             </div>
-            {error ? <div className="alert alert--bad">{error}</div> : null}
+            {showError ? <div className="alert alert--bad">{showError}</div> : null}
             {lastTicket ? (
               <div className="alert alert--good">
                 <div className="row">

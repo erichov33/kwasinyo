@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
-    "test:smoke": "node src/smoke.js"
+    "test:smoke": "node src/smoke.js",
+    "migrations:sql": "node --input-type=module -e \"import('./src/db.js').then((m)=>process.stdout.write(m.getMigrationsSql()))\""
   },
   "keywords": [],
   "author": "",

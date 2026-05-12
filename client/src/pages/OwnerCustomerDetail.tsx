@@ -5,6 +5,7 @@ import { AppShell } from '../components/AppShell'
 import { api } from '../lib/api'
 import { formatDayDate } from '../lib/date'
 import { formatMoneyCents } from '../lib/money'
+import { ownerNav } from '../lib/nav'
 
 type Customer = {
   id: number
@@ -227,15 +228,7 @@ export function OwnerCustomerDetail() {
   const unredeemedRewards = useMemo(() => (detail?.rewards ?? []).filter((r) => !r.redeemedAt), [detail])
 
   return (
-    <AppShell
-      section="Customers"
-      nav={[
-        { to: '/owner', label: 'Dashboard', icon: '⌂', end: true },
-        { to: '/owner/reports', label: 'Reports', icon: '▦' },
-        { to: '/owner/customers', label: 'Customers', icon: '◎' },
-        { to: '/owner/price-board', label: 'Price Board', icon: '≡' },
-      ]}
-    >
+    <AppShell section="Customers" nav={ownerNav}>
       <div className="shellInner stack">
         {error ? <div className="alert alert--bad">{error}</div> : null}
 
