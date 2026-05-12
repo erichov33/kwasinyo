@@ -162,6 +162,7 @@ export function attachOwnerRoutes(app) {
         start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         type: z.string().optional(),
+        group: z.enum(['day', 'week', 'month']).optional(),
       })
       .strict()
     const parsed = schema.safeParse(req.query)
@@ -177,6 +178,7 @@ export function attachOwnerRoutes(app) {
     if (days.length > 120) return res.status(400).json({ error: 'range_too_large' })
 
     const placeholders = days.map(() => '?').join(',')
+    const group = parsed.data.group ?? 'day'
 
     const totals = db
       .prepare(
@@ -218,18 +220,6 @@ export function attachOwnerRoutes(app) {
       `,
       )
       .get(...days)
-
-    const byDay = db
-      .prepare(
-        `
-        SELECT day_date AS dayDate, COUNT(*) AS ticketsCount, IFNULL(SUM(price_cents), 0) AS revenueCents
-        FROM tickets
-        WHERE day_date IN (${placeholders})
-        GROUP BY day_date
-      `,
-      )
-      .all(...days)
-    const byDayMap = new Map(byDay.map((r) => [r.dayDate, r]))
 
     const serviceRows = db
       .prepare(
@@ -290,24 +280,167 @@ export function attachOwnerRoutes(app) {
     let cashierSubmittedDays = 0
     let confirmedDays = 0
 
-    const daily = days.map((d) => {
-      const t = byDayMap.get(d) ?? { ticketsCount: 0, revenueCents: 0 }
-      const rec = recMap.get(d) ?? null
-      let status = 'pending'
-      if (rec?.cashierSubmittedAt && !rec?.ownerConfirmedAt) status = 'cashier_submitted'
-      if (rec?.ownerConfirmedAt) status = 'confirmed'
-      if (status === 'pending') pendingDays += 1
-      if (status === 'cashier_submitted') cashierSubmittedDays += 1
-      if (status === 'confirmed') confirmedDays += 1
+    const makeDaySeries = () => {
+      const byDay = db
+        .prepare(
+          `
+          SELECT day_date AS key, day_date AS label, COUNT(*) AS ticketsCount, IFNULL(SUM(price_cents), 0) AS revenueCents
+          FROM tickets
+          WHERE day_date IN (${placeholders})
+          GROUP BY day_date
+        `,
+        )
+        .all(...days)
+      const byDayMap = new Map(byDay.map((r) => [r.key, r]))
 
-      return {
-        dayDate: d,
-        ticketsCount: t.ticketsCount ?? 0,
-        revenueCents: t.revenueCents ?? 0,
-        discrepancyCashCents: rec?.discrepancyCashCents ?? null,
-        status,
-      }
-    })
+      return days.map((d) => {
+        const t = byDayMap.get(d) ?? { ticketsCount: 0, revenueCents: 0 }
+        const rec = recMap.get(d) ?? null
+        let status = 'pending'
+        if (rec?.cashierSubmittedAt && !rec?.ownerConfirmedAt) status = 'cashier_submitted'
+        if (rec?.ownerConfirmedAt) status = 'confirmed'
+        if (status === 'pending') pendingDays += 1
+        if (status === 'cashier_submitted') cashierSubmittedDays += 1
+        if (status === 'confirmed') confirmedDays += 1
+
+        return {
+          key: d,
+          label: d,
+          start: d,
+          end: d,
+          ticketsCount: t.ticketsCount ?? 0,
+          revenueCents: t.revenueCents ?? 0,
+          discrepancyCashCents: rec?.discrepancyCashCents ?? null,
+          status,
+        }
+      })
+    }
+
+    const makeWeekSeries = () => {
+      const tickets = db
+        .prepare(
+          `
+          SELECT
+            date(day_date, 'weekday 0', '-6 days') AS weekStart,
+            COUNT(*) AS ticketsCount,
+            IFNULL(SUM(price_cents), 0) AS revenueCents
+          FROM tickets
+          WHERE day_date IN (${placeholders})
+          GROUP BY weekStart
+          ORDER BY weekStart ASC
+        `,
+        )
+        .all(...days)
+      const ticketMap = new Map(tickets.map((r) => [r.weekStart, r]))
+
+      const recs = db
+        .prepare(
+          `
+          SELECT
+            date(day_date, 'weekday 0', '-6 days') AS weekStart,
+            IFNULL(SUM(discrepancy_cash_cents), 0) AS discrepancyCashCents,
+            COUNT(*) AS submittedDays,
+            SUM(CASE WHEN owner_confirmed_at IS NOT NULL THEN 1 ELSE 0 END) AS confirmedDays
+          FROM day_reconciliations
+          WHERE day_date IN (${placeholders})
+          GROUP BY weekStart
+        `,
+        )
+        .all(...days)
+      const recMap2 = new Map(recs.map((r) => [r.weekStart, r]))
+
+      const weekStarts = [...new Set(days.map((d) => db.prepare("SELECT date(?, 'weekday 0', '-6 days') AS w").get(d).w))].sort()
+      return weekStarts.map((ws) => {
+        const t = ticketMap.get(ws) ?? { ticketsCount: 0, revenueCents: 0 }
+        const r = recMap2.get(ws) ?? null
+        const start2 = ws
+        const end2 = addDays(ws, 6)
+        let status = 'pending'
+        if (r?.submittedDays > 0) status = 'cashier_submitted'
+        if (r?.confirmedDays === r?.submittedDays && r?.submittedDays > 0) status = 'confirmed'
+        if (status === 'pending') pendingDays += 1
+        if (status === 'cashier_submitted') cashierSubmittedDays += 1
+        if (status === 'confirmed') confirmedDays += 1
+        return {
+          key: ws,
+          label: ws,
+          start: start2,
+          end: end2,
+          ticketsCount: t.ticketsCount ?? 0,
+          revenueCents: t.revenueCents ?? 0,
+          discrepancyCashCents: r ? r.discrepancyCashCents : null,
+          status,
+        }
+      })
+    }
+
+    const makeMonthSeries = () => {
+      const tickets = db
+        .prepare(
+          `
+          SELECT
+            substr(day_date, 1, 7) AS ym,
+            COUNT(*) AS ticketsCount,
+            IFNULL(SUM(price_cents), 0) AS revenueCents
+          FROM tickets
+          WHERE day_date IN (${placeholders})
+          GROUP BY ym
+          ORDER BY ym ASC
+        `,
+        )
+        .all(...days)
+      const ticketMap = new Map(tickets.map((r) => [r.ym, r]))
+
+      const recs = db
+        .prepare(
+          `
+          SELECT
+            substr(day_date, 1, 7) AS ym,
+            IFNULL(SUM(discrepancy_cash_cents), 0) AS discrepancyCashCents,
+            COUNT(*) AS submittedDays,
+            SUM(CASE WHEN owner_confirmed_at IS NOT NULL THEN 1 ELSE 0 END) AS confirmedDays
+          FROM day_reconciliations
+          WHERE day_date IN (${placeholders})
+          GROUP BY ym
+        `,
+        )
+        .all(...days)
+      const recMap2 = new Map(recs.map((r) => [r.ym, r]))
+
+      const yms = [...new Set(days.map((d) => d.slice(0, 7)))].sort()
+      return yms.map((ym) => {
+        const t = ticketMap.get(ym) ?? { ticketsCount: 0, revenueCents: 0 }
+        const r = recMap2.get(ym) ?? null
+        const start2 = `${ym}-01`
+        let end2 = `${ym}-28`
+        for (let i = 31; i >= 28; i -= 1) {
+          const cand = `${ym}-${String(i).padStart(2, '0')}`
+          if (cand >= start && cand <= end) {
+            end2 = cand
+            break
+          }
+        }
+        let status = 'pending'
+        if (r?.submittedDays > 0) status = 'cashier_submitted'
+        if (r?.confirmedDays === r?.submittedDays && r?.submittedDays > 0) status = 'confirmed'
+        if (status === 'pending') pendingDays += 1
+        if (status === 'cashier_submitted') cashierSubmittedDays += 1
+        if (status === 'confirmed') confirmedDays += 1
+        return {
+          key: ym,
+          label: ym,
+          start: start2,
+          end: end2,
+          ticketsCount: t.ticketsCount ?? 0,
+          revenueCents: t.revenueCents ?? 0,
+          discrepancyCashCents: r ? r.discrepancyCashCents : null,
+          status,
+        }
+      })
+    }
+
+    const series =
+      group === 'week' ? makeWeekSeries() : group === 'month' ? makeMonthSeries() : makeDaySeries()
 
     const totalTickets = totals.ticketsCount ?? 0
     const totalRevenueCents = totals.totalRevenueCents ?? 0
@@ -323,6 +456,7 @@ export function attachOwnerRoutes(app) {
     res.json({
       range: { start, end, days: days.length },
       type: parsed.data.type ?? 'overview',
+      group,
       summary: {
         totalTickets,
         totalRevenueCents,
@@ -347,7 +481,7 @@ export function attachOwnerRoutes(app) {
         confirmed: confirmedDays,
       },
       paymentBreakdown: paymentRows,
-      daily,
+      series,
     })
   })
 

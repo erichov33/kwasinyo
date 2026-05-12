@@ -727,7 +727,7 @@ label {
 
 .filterBar__grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 170px;
+  grid-template-columns: 1fr 1fr 1fr 1fr 170px;
   gap: 12px;
   align-items: end;
 }

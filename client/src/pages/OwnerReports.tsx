@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AppShell } from '../components/AppShell'
 import { BarChart } from '../components/BarChart'
+import { DivergingBarChart } from '../components/DivergingBarChart'
 import { api } from '../lib/api'
 import { formatMoneyCents } from '../lib/money'
 
-type DailyRow = {
-  dayDate: string
+type SeriesRow = {
+  key: string
+  label: string
+  start: string
+  end: string
   ticketsCount: number
   revenueCents: number
   discrepancyCashCents: number | null
@@ -15,6 +19,7 @@ type DailyRow = {
 type ReportsRes = {
   range: { start: string; end: string; days: number }
   type: string
+  group: 'day' | 'week' | 'month'
   summary: {
     totalTickets: number
     totalRevenueCents: number
@@ -39,7 +44,7 @@ type ReportsRes = {
     confirmed: number
   }
   paymentBreakdown: Array<{ paymentMethod: string; ticketsCount: number; revenueCents: number }>
-  daily: DailyRow[]
+  series: SeriesRow[]
 }
 
 function isoDayDate(dt: Date) {
@@ -63,18 +68,22 @@ export function OwnerReports() {
   const [start, setStart] = useState(defaultStart)
   const [end, setEnd] = useState(today)
   const [type, setType] = useState<'overview'>('overview')
+  const [group, setGroup] = useState<'day' | 'week' | 'month'>('day')
   const [data, setData] = useState<ReportsRes | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
-  const load = async (next?: { start: string; end: string; type: string }) => {
+  const load = async (next?: { start: string; end: string; type: string; group: 'day' | 'week' | 'month' }) => {
     const s = next?.start ?? start
     const e = next?.end ?? end
     const t = next?.type ?? type
+    const g = next?.group ?? group
     setLoading(true)
     setError(null)
     try {
-      const res = await api<ReportsRes>(`/api/owner/reports?start=${encodeURIComponent(s)}&end=${encodeURIComponent(e)}&type=${encodeURIComponent(t)}`)
+      const res = await api<ReportsRes>(
+        `/api/owner/reports?start=${encodeURIComponent(s)}&end=${encodeURIComponent(e)}&type=${encodeURIComponent(t)}&group=${encodeURIComponent(g)}`,
+      )
       setData(res)
     } catch (err: any) {
       setError(err?.message ?? 'load_failed')
@@ -85,16 +94,26 @@ export function OwnerReports() {
   }
 
   useEffect(() => {
-    load({ start: defaultStart, end: today, type: 'overview' })
+    load({ start: defaultStart, end: today, type: 'overview', group: 'day' })
   }, [defaultStart, today])
 
   const revenuePoints = useMemo(
-    () => (data?.daily ?? []).map((r) => ({ label: r.dayDate, value: r.revenueCents })),
+    () => (data?.series ?? []).map((r) => ({ label: r.label, value: r.revenueCents })),
     [data],
   )
 
   const peakHourPoints = useMemo(
     () => (data?.behavioral.peakHours ?? []).map((h) => ({ label: String(h.hour).padStart(2, '0'), value: h.ticketsCount })),
+    [data],
+  )
+
+  const volumePoints = useMemo(
+    () => (data?.series ?? []).map((r) => ({ label: r.label, value: r.ticketsCount })),
+    [data],
+  )
+
+  const discrepancyPoints = useMemo(
+    () => (data?.series ?? []).map((r) => ({ label: r.label, value: r.discrepancyCashCents ?? 0 })),
     [data],
   )
 
@@ -119,14 +138,29 @@ export function OwnerReports() {
     const lines: string[] = []
     lines.push(['Start', data.range.start].join(','))
     lines.push(['End', data.range.end].join(','))
+    lines.push(['Group', data.group].join(','))
     lines.push(['Total Tickets', String(data.summary.totalTickets)].join(','))
     lines.push(['Total Revenue', String(data.summary.totalRevenueCents)].join(','))
     lines.push(['Avg Ticket', String(data.summary.avgTicketCents)].join(','))
     lines.push(['Unique Plates', String(data.summary.uniquePlatesCount)].join(','))
+    lines.push(['Expected Cash', String(data.financial.expectedCashCents)].join(','))
+    lines.push(['Declared Cash', String(data.financial.declaredCashCents)].join(','))
+    lines.push(['Discrepancy Cash', String(data.financial.discrepancyCashCents)].join(','))
+    lines.push(['Leakage %', String(data.financial.leakagePct)].join(','))
     lines.push('')
-    lines.push(['Day', 'Tickets', 'RevenueCents', 'DiscrepancyCashCents', 'Status'].join(','))
-    for (const r of data.daily) {
-      lines.push([r.dayDate, String(r.ticketsCount), String(r.revenueCents), String(r.discrepancyCashCents ?? ''), r.status].join(','))
+    lines.push(['Bucket', 'Start', 'End', 'Tickets', 'RevenueCents', 'DiscrepancyCashCents', 'Status'].join(','))
+    for (const r of data.series) {
+      lines.push(
+        [
+          r.label,
+          r.start,
+          r.end,
+          String(r.ticketsCount),
+          String(r.revenueCents),
+          String(r.discrepancyCashCents ?? ''),
+          r.status,
+        ].join(','),
+      )
     }
     const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -177,6 +211,14 @@ export function OwnerReports() {
                 <label>Report Type</label>
                 <select className="select" value={type} onChange={(e) => setType(e.target.value as any)}>
                   <option value="overview">Overview</option>
+                </select>
+              </div>
+              <div className="field">
+                <label>Group by</label>
+                <select className="select" value={group} onChange={(e) => setGroup(e.target.value as any)}>
+                  <option value="day">Day</option>
+                  <option value="week">Week</option>
+                  <option value="month">Month</option>
                 </select>
               </div>
               <div className="field filterBar__action">
@@ -245,8 +287,22 @@ export function OwnerReports() {
           </div>
 
           <div className="card">
+            <h2 className="h2">Wash Volume</h2>
+            <div className="muted">Cars washed per {data?.group ?? 'day'}</div>
+            <BarChart points={volumePoints} />
+          </div>
+        </div>
+
+        <div className="dashGrid">
+          <div className="card">
+            <h2 className="h2">Leakage / Discrepancy</h2>
+            <div className="muted">Cash discrepancy per {data?.group ?? 'day'}</div>
+            <DivergingBarChart points={discrepancyPoints} />
+          </div>
+
+          <div className="card">
             <h2 className="h2">Reconciliation Status</h2>
-            <div className="muted">Days in range</div>
+            <div className="muted">Buckets in range</div>
             {data ? (
               <div className="statusBars">
                 <div className="statusRow">
