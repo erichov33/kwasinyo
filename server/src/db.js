@@ -300,6 +300,26 @@ const MIGRATIONS = [
         );
     `,
   },
+  {
+    id: '003_updated_at_triggers',
+    sql: `
+      CREATE OR REPLACE FUNCTION set_updated_at()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        NEW.updated_at = now();
+        RETURN NEW;
+      END;
+      $$;
+
+      DROP TRIGGER IF EXISTS trg_customers_updated_at ON customers;
+      CREATE TRIGGER trg_customers_updated_at
+      BEFORE UPDATE ON customers
+      FOR EACH ROW
+      EXECUTE FUNCTION set_updated_at();
+    `,
+  },
 ]
 
 async function applyMigrations() {
