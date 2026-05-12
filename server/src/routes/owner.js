@@ -59,7 +59,7 @@ export function attachOwnerRoutes(app) {
       `
         SELECT COUNT(*)::int AS "ticketsCount", COALESCE(SUM(price_cents), 0)::int AS "expectedRevenueCents"
         FROM tickets
-        WHERE day_date = $1 AND voided_at IS NULL
+        WHERE day_date = $1::date AND voided_at IS NULL
       `,
       [dayDate],
     )
@@ -72,7 +72,7 @@ export function attachOwnerRoutes(app) {
           owner_confirmed_at AS "ownerConfirmedAt",
           discrepancy_cash_cents AS "discrepancyCashCents"
         FROM day_reconciliations
-        WHERE day_date = $1
+        WHERE day_date = $1::date
       `,
       [dayDate],
     )
@@ -105,7 +105,7 @@ export function attachOwnerRoutes(app) {
       `
         SELECT day_date AS "dayDate", COUNT(*)::int AS "ticketsCount", COALESCE(SUM(price_cents), 0)::int AS "expectedRevenueCents"
         FROM tickets
-        WHERE day_date >= $1 AND day_date <= $2 AND voided_at IS NULL
+        WHERE day_date >= $1::date AND day_date <= $2::date AND voided_at IS NULL
         GROUP BY day_date
       `,
       [start, end],
@@ -121,7 +121,7 @@ export function attachOwnerRoutes(app) {
           cashier_submitted_at AS "cashierSubmittedAt",
           owner_confirmed_at AS "ownerConfirmedAt"
         FROM day_reconciliations
-        WHERE day_date >= $1 AND day_date <= $2
+        WHERE day_date >= $1::date AND day_date <= $2::date
       `,
       [start, end],
     )
@@ -178,7 +178,7 @@ export function attachOwnerRoutes(app) {
           COALESCE(SUM(price_cents), 0)::int AS "totalRevenueCents",
           COUNT(DISTINCT plate)::int AS "uniquePlatesCount"
         FROM tickets
-        WHERE day_date >= $1 AND day_date <= $2 AND voided_at IS NULL
+        WHERE day_date >= $1::date AND day_date <= $2::date AND voided_at IS NULL
       `,
       [start, end],
     )
@@ -191,7 +191,7 @@ export function attachOwnerRoutes(app) {
           COALESCE(SUM(declared_cash_cents), 0)::int AS "declaredCashCents",
           COALESCE(SUM(discrepancy_cash_cents), 0)::int AS "discrepancyCashCents"
         FROM day_reconciliations
-        WHERE day_date >= $1 AND day_date <= $2
+        WHERE day_date >= $1::date AND day_date <= $2::date
       `,
       [start, end],
     )
@@ -203,7 +203,7 @@ export function attachOwnerRoutes(app) {
         FROM (
           SELECT plate
           FROM tickets
-          WHERE day_date >= $1 AND day_date <= $2 AND voided_at IS NULL
+          WHERE day_date >= $1::date AND day_date <= $2::date AND voided_at IS NULL
           GROUP BY plate
           HAVING COUNT(*) >= 2
         ) rp
@@ -216,7 +216,7 @@ export function attachOwnerRoutes(app) {
       `
         SELECT service_type_name AS "serviceTypeName", COUNT(*)::int AS "ticketsCount", COALESCE(SUM(price_cents), 0)::int AS "revenueCents"
         FROM tickets
-        WHERE day_date >= $1 AND day_date <= $2 AND voided_at IS NULL
+        WHERE day_date >= $1::date AND day_date <= $2::date AND voided_at IS NULL
         GROUP BY service_type_name
         ORDER BY revenueCents DESC, ticketsCount DESC
       `,
@@ -231,7 +231,7 @@ export function attachOwnerRoutes(app) {
           COUNT(*)::int AS "ticketsCount",
           COALESCE(SUM(price_cents), 0)::int AS "revenueCents"
         FROM tickets
-        WHERE day_date >= $1 AND day_date <= $2 AND voided_at IS NULL
+        WHERE day_date >= $1::date AND day_date <= $2::date AND voided_at IS NULL
         GROUP BY hour
         ORDER BY hour ASC
       `,
@@ -251,7 +251,7 @@ export function attachOwnerRoutes(app) {
       `
         SELECT payment_method AS "paymentMethod", COUNT(*)::int AS "ticketsCount", COALESCE(SUM(price_cents), 0)::int AS "revenueCents"
         FROM tickets
-        WHERE day_date >= $1 AND day_date <= $2 AND voided_at IS NULL
+        WHERE day_date >= $1::date AND day_date <= $2::date AND voided_at IS NULL
         GROUP BY payment_method
       `,
       [start, end],
@@ -266,7 +266,7 @@ export function attachOwnerRoutes(app) {
           cashier_submitted_at AS "cashierSubmittedAt",
           owner_confirmed_at AS "ownerConfirmedAt"
         FROM day_reconciliations
-        WHERE day_date >= $1 AND day_date <= $2
+        WHERE day_date >= $1::date AND day_date <= $2::date
       `,
       [start, end],
     )
@@ -280,7 +280,7 @@ export function attachOwnerRoutes(app) {
       `
         SELECT day_date AS "dayDate", COUNT(*)::int AS "ticketsCount", COALESCE(SUM(price_cents), 0)::int AS "revenueCents"
         FROM tickets
-        WHERE day_date >= $1 AND day_date <= $2 AND voided_at IS NULL
+        WHERE day_date >= $1::date AND day_date <= $2::date AND voided_at IS NULL
         GROUP BY day_date
       `,
       [start, end],
@@ -452,7 +452,7 @@ export function attachOwnerRoutes(app) {
           t.payment_method AS "paymentMethod",
           t.created_at AS "createdAt"
         FROM tickets t
-        WHERE t.day_date = $1 AND t.voided_at IS NULL
+        WHERE t.day_date = $1::date AND t.voided_at IS NULL
         ORDER BY t.ticket_number DESC
       `,
       [dayDate],
@@ -471,7 +471,7 @@ export function attachOwnerRoutes(app) {
           owner_confirmed_at AS "ownerConfirmedAt",
           owner_note AS "ownerNote"
         FROM day_reconciliations
-        WHERE day_date = $1
+        WHERE day_date = $1::date
       `,
       [dayDate],
     )
@@ -501,7 +501,7 @@ export function attachOwnerRoutes(app) {
           t.void_reason AS "voidReason",
           t.created_at AS "createdAt"
         FROM tickets t
-        WHERE t.day_date = $1
+        WHERE t.day_date = $1::date
         ORDER BY t.ticket_number ASC
       `,
       [dayDate],

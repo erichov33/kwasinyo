@@ -11,7 +11,7 @@ async function computeDayTotals(dayDate) {
         COALESCE(SUM(price_cents), 0)::int AS "expectedRevenueCents",
         COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN price_cents ELSE 0 END), 0)::int AS "expectedCashCents"
       FROM tickets
-      WHERE day_date = $1 AND voided_at IS NULL
+      WHERE day_date = $1::date AND voided_at IS NULL
     `,
     [dayDate],
   )
@@ -32,7 +32,7 @@ async function getReconciliation(dayDate) {
         owner_confirmed_at AS "ownerConfirmedAt",
         owner_note AS "ownerNote"
       FROM day_reconciliations
-      WHERE day_date = $1
+      WHERE day_date = $1::date
     `,
     [dayDate],
   )
@@ -73,7 +73,7 @@ export function attachCloseoutRoutes(app) {
       INSERT INTO day_reconciliations
         (day_date, tickets_count, expected_revenue_cents, expected_cash_cents, declared_cash_cents, discrepancy_cash_cents, cashier_submitted_at)
       VALUES
-        ($1, $2, $3, $4, $5, $6, $7)
+        ($1::date, $2, $3, $4, $5, $6, $7)
     `,
       [
         dayDate,
@@ -106,7 +106,7 @@ export function attachCloseoutRoutes(app) {
       `
       UPDATE day_reconciliations
       SET owner_confirmed_at = $1, owner_note = $2
-      WHERE day_date = $3
+      WHERE day_date = $3::date
     `,
       [now, parsed.data.ownerNote ?? null, parsed.data.dayDate],
     )

@@ -28,7 +28,7 @@ function formatTicketNumber(n) {
 export function attachTicketRoutes(app) {
   app.post('/api/tickets', requireRole('cashier'), async (req, res) => {
     const dayDate = getLocalDayDate()
-    const locked = await query('SELECT 1 FROM day_reconciliations WHERE day_date = $1 LIMIT 1', [dayDate])
+    const locked = await query('SELECT 1 FROM day_reconciliations WHERE day_date = $1::date LIMIT 1', [dayDate])
     if (locked.rows.length) return res.status(409).json({ error: 'day_locked' })
 
     const schema = z.object({
@@ -68,7 +68,7 @@ export function attachTicketRoutes(app) {
         INSERT INTO tickets
           (day_date, plate, vehicle_type_id, vehicle_type_name, service_type_id, service_type_name, base_price_cents, price_cents, price_overridden, discount_cents, discount_reason, override_note, payment_method, cashier_user_id, created_at)
         VALUES
-          ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+          ($1::date,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
         RETURNING id, ticket_number
       `,
         [
@@ -157,7 +157,7 @@ export function attachTicketRoutes(app) {
           t.payment_method AS "paymentMethod",
           t.created_at AS "createdAt"
         FROM tickets t
-        WHERE t.day_date = $1 AND t.voided_at IS NULL
+        WHERE t.day_date = $1::date AND t.voided_at IS NULL
         ORDER BY t.ticket_number DESC
       `,
       [dayDate],
@@ -190,7 +190,7 @@ export function attachTicketRoutes(app) {
           t.payment_method AS "paymentMethod",
           t.created_at AS "createdAt"
         FROM tickets t
-        WHERE t.day_date = $1 AND t.voided_at IS NULL
+        WHERE t.day_date = $1::date AND t.voided_at IS NULL
         ORDER BY t.ticket_number DESC
       `,
       [parsed.data.dayDate],
@@ -255,7 +255,7 @@ export function attachTicketRoutes(app) {
     if (!t) return res.status(404).json({ error: 'not_found' })
     if (t.voidedAt) return res.status(409).json({ error: 'already_voided' })
 
-    const locked = await query('SELECT 1 FROM day_reconciliations WHERE day_date = $1 LIMIT 1', [t.dayDate])
+    const locked = await query('SELECT 1 FROM day_reconciliations WHERE day_date = $1::date LIMIT 1', [t.dayDate])
     if (locked.rows.length) return res.status(409).json({ error: 'day_locked' })
 
     const now = new Date().toISOString()

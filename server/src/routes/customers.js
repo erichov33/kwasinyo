@@ -57,7 +57,7 @@ async function computeCustomerStats(customerId) {
     `
       SELECT COUNT(*)::int AS "visitsLast30"
       FROM tickets
-      WHERE plate IN ${clause} AND day_date >= $${params.length + 1} AND voided_at IS NULL
+      WHERE plate IN ${clause} AND day_date >= $${params.length + 1}::date AND voided_at IS NULL
     `,
     [...params, day30],
   )
@@ -66,7 +66,7 @@ async function computeCustomerStats(customerId) {
     `
       SELECT COUNT(*)::int AS "visitsLast90"
       FROM tickets
-      WHERE plate IN ${clause} AND day_date >= $${params.length + 1} AND voided_at IS NULL
+      WHERE plate IN ${clause} AND day_date >= $${params.length + 1}::date AND voided_at IS NULL
     `,
     [...params, day90],
   )
@@ -367,7 +367,7 @@ export function attachCustomerRoutes(app) {
         FROM tickets t
         JOIN customer_plates cp ON cp.plate = t.plate
         JOIN customers c ON c.id = cp.customer_id
-        WHERE c.active = 1 AND t.day_date >= $1 AND t.voided_at IS NULL
+        WHERE c.active = 1 AND t.day_date >= $1::date AND t.voided_at IS NULL
         GROUP BY c.id
         ORDER BY visits DESC, revenueCents DESC
         LIMIT $2

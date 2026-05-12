@@ -146,37 +146,158 @@ const MIGRATIONS = [
     id: '002_timestamps_and_day_date',
     sql: `
       ALTER TABLE schema_migrations
-        ALTER COLUMN applied_at TYPE timestamptz USING (CASE WHEN applied_at = '' THEN now() ELSE applied_at::timestamptz END);
+        ALTER COLUMN applied_at TYPE timestamptz USING (
+          COALESCE(
+            CASE
+              WHEN applied_at IS NULL OR applied_at = '' THEN NULL
+              WHEN applied_at ~ 'Z$' OR applied_at ~ '[-+]\\d{2}:?\\d{2}$' THEN applied_at::timestamptz
+              WHEN applied_at ~ '^\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?$' THEN (applied_at::timestamp AT TIME ZONE 'UTC')
+              ELSE NULL
+            END,
+            now()
+          )
+        );
 
       ALTER TABLE users
-        ALTER COLUMN created_at TYPE timestamptz USING (CASE WHEN created_at = '' THEN now() ELSE created_at::timestamptz END);
+        ALTER COLUMN created_at TYPE timestamptz USING (
+          COALESCE(
+            CASE
+              WHEN created_at IS NULL OR created_at = '' THEN NULL
+              WHEN created_at ~ 'Z$' OR created_at ~ '[-+]\\d{2}:?\\d{2}$' THEN created_at::timestamptz
+              WHEN created_at ~ '^\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?$' THEN (created_at::timestamp AT TIME ZONE 'UTC')
+              ELSE NULL
+            END,
+            now()
+          )
+        );
 
       ALTER TABLE price_matrix
-        ALTER COLUMN updated_at TYPE timestamptz USING (CASE WHEN updated_at = '' THEN now() ELSE updated_at::timestamptz END);
+        ALTER COLUMN updated_at TYPE timestamptz USING (
+          COALESCE(
+            CASE
+              WHEN updated_at IS NULL OR updated_at = '' THEN NULL
+              WHEN updated_at ~ 'Z$' OR updated_at ~ '[-+]\\d{2}:?\\d{2}$' THEN updated_at::timestamptz
+              WHEN updated_at ~ '^\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?$' THEN (updated_at::timestamp AT TIME ZONE 'UTC')
+              ELSE NULL
+            END,
+            now()
+          )
+        );
 
       ALTER TABLE tickets
         ALTER COLUMN day_date TYPE date USING (day_date::date),
-        ALTER COLUMN created_at TYPE timestamptz USING (CASE WHEN created_at = '' THEN now() ELSE created_at::timestamptz END),
-        ALTER COLUMN voided_at TYPE timestamptz USING (NULLIF(voided_at, '')::timestamptz);
+        ALTER COLUMN created_at TYPE timestamptz USING (
+          COALESCE(
+            CASE
+              WHEN created_at IS NULL OR created_at = '' THEN NULL
+              WHEN created_at ~ 'Z$' OR created_at ~ '[-+]\\d{2}:?\\d{2}$' THEN created_at::timestamptz
+              WHEN created_at ~ '^\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?$' THEN (created_at::timestamp AT TIME ZONE 'UTC')
+              ELSE NULL
+            END,
+            now()
+          )
+        ),
+        ALTER COLUMN voided_at TYPE timestamptz USING (
+          CASE
+            WHEN voided_at IS NULL OR voided_at = '' THEN NULL
+            WHEN voided_at ~ 'Z$' OR voided_at ~ '[-+]\\d{2}:?\\d{2}$' THEN voided_at::timestamptz
+            WHEN voided_at ~ '^\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?$' THEN (voided_at::timestamp AT TIME ZONE 'UTC')
+            ELSE NULL
+          END
+        );
 
       ALTER TABLE ticket_audits
-        ALTER COLUMN created_at TYPE timestamptz USING (CASE WHEN created_at = '' THEN now() ELSE created_at::timestamptz END);
+        ALTER COLUMN created_at TYPE timestamptz USING (
+          COALESCE(
+            CASE
+              WHEN created_at IS NULL OR created_at = '' THEN NULL
+              WHEN created_at ~ 'Z$' OR created_at ~ '[-+]\\d{2}:?\\d{2}$' THEN created_at::timestamptz
+              WHEN created_at ~ '^\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?$' THEN (created_at::timestamp AT TIME ZONE 'UTC')
+              ELSE NULL
+            END,
+            now()
+          )
+        );
 
       ALTER TABLE day_reconciliations
         ALTER COLUMN day_date TYPE date USING (day_date::date),
-        ALTER COLUMN cashier_submitted_at TYPE timestamptz USING (CASE WHEN cashier_submitted_at = '' THEN now() ELSE cashier_submitted_at::timestamptz END),
-        ALTER COLUMN owner_confirmed_at TYPE timestamptz USING (NULLIF(owner_confirmed_at, '')::timestamptz);
+        ALTER COLUMN cashier_submitted_at TYPE timestamptz USING (
+          COALESCE(
+            CASE
+              WHEN cashier_submitted_at IS NULL OR cashier_submitted_at = '' THEN NULL
+              WHEN cashier_submitted_at ~ 'Z$' OR cashier_submitted_at ~ '[-+]\\d{2}:?\\d{2}$' THEN cashier_submitted_at::timestamptz
+              WHEN cashier_submitted_at ~ '^\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?$' THEN (cashier_submitted_at::timestamp AT TIME ZONE 'UTC')
+              ELSE NULL
+            END,
+            now()
+          )
+        ),
+        ALTER COLUMN owner_confirmed_at TYPE timestamptz USING (
+          CASE
+            WHEN owner_confirmed_at IS NULL OR owner_confirmed_at = '' THEN NULL
+            WHEN owner_confirmed_at ~ 'Z$' OR owner_confirmed_at ~ '[-+]\\d{2}:?\\d{2}$' THEN owner_confirmed_at::timestamptz
+            WHEN owner_confirmed_at ~ '^\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?$' THEN (owner_confirmed_at::timestamp AT TIME ZONE 'UTC')
+            ELSE NULL
+          END
+        );
 
       ALTER TABLE customers
-        ALTER COLUMN created_at TYPE timestamptz USING (CASE WHEN created_at = '' THEN now() ELSE created_at::timestamptz END),
-        ALTER COLUMN updated_at TYPE timestamptz USING (CASE WHEN updated_at = '' THEN now() ELSE updated_at::timestamptz END);
+        ALTER COLUMN created_at TYPE timestamptz USING (
+          COALESCE(
+            CASE
+              WHEN created_at IS NULL OR created_at = '' THEN NULL
+              WHEN created_at ~ 'Z$' OR created_at ~ '[-+]\\d{2}:?\\d{2}$' THEN created_at::timestamptz
+              WHEN created_at ~ '^\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?$' THEN (created_at::timestamp AT TIME ZONE 'UTC')
+              ELSE NULL
+            END,
+            now()
+          )
+        ),
+        ALTER COLUMN updated_at TYPE timestamptz USING (
+          COALESCE(
+            CASE
+              WHEN updated_at IS NULL OR updated_at = '' THEN NULL
+              WHEN updated_at ~ 'Z$' OR updated_at ~ '[-+]\\d{2}:?\\d{2}$' THEN updated_at::timestamptz
+              WHEN updated_at ~ '^\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?$' THEN (updated_at::timestamp AT TIME ZONE 'UTC')
+              ELSE NULL
+            END,
+            now()
+          )
+        );
 
       ALTER TABLE customer_plates
-        ALTER COLUMN created_at TYPE timestamptz USING (CASE WHEN created_at = '' THEN now() ELSE created_at::timestamptz END);
+        ALTER COLUMN created_at TYPE timestamptz USING (
+          COALESCE(
+            CASE
+              WHEN created_at IS NULL OR created_at = '' THEN NULL
+              WHEN created_at ~ 'Z$' OR created_at ~ '[-+]\\d{2}:?\\d{2}$' THEN created_at::timestamptz
+              WHEN created_at ~ '^\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?$' THEN (created_at::timestamp AT TIME ZONE 'UTC')
+              ELSE NULL
+            END,
+            now()
+          )
+        );
 
       ALTER TABLE loyalty_rewards
-        ALTER COLUMN granted_at TYPE timestamptz USING (CASE WHEN granted_at = '' THEN now() ELSE granted_at::timestamptz END),
-        ALTER COLUMN redeemed_at TYPE timestamptz USING (NULLIF(redeemed_at, '')::timestamptz);
+        ALTER COLUMN granted_at TYPE timestamptz USING (
+          COALESCE(
+            CASE
+              WHEN granted_at IS NULL OR granted_at = '' THEN NULL
+              WHEN granted_at ~ 'Z$' OR granted_at ~ '[-+]\\d{2}:?\\d{2}$' THEN granted_at::timestamptz
+              WHEN granted_at ~ '^\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?$' THEN (granted_at::timestamp AT TIME ZONE 'UTC')
+              ELSE NULL
+            END,
+            now()
+          )
+        ),
+        ALTER COLUMN redeemed_at TYPE timestamptz USING (
+          CASE
+            WHEN redeemed_at IS NULL OR redeemed_at = '' THEN NULL
+            WHEN redeemed_at ~ 'Z$' OR redeemed_at ~ '[-+]\\d{2}:?\\d{2}$' THEN redeemed_at::timestamptz
+            WHEN redeemed_at ~ '^\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?$' THEN (redeemed_at::timestamp AT TIME ZONE 'UTC')
+            ELSE NULL
+          END
+        );
     `,
   },
 ]
