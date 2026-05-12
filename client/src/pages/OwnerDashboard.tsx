@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { Badge } from '../components/Badge'
 import { BarChart } from '../components/BarChart'
 import { DivergingBarChart } from '../components/DivergingBarChart'
-import { TopBar } from '../components/TopBar'
+import { AppShell } from '../components/AppShell'
 import { api } from '../lib/api'
 import { formatDayDate } from '../lib/date'
 import { formatMoneyCents } from '../lib/money'
@@ -97,17 +97,58 @@ export function OwnerDashboard() {
   )
 
   return (
-    <main className="page">
-      <TopBar title="Owner" links={[{ to: '/owner', label: 'Dashboard' }, { to: '/owner/price-board', label: 'Price Board' }]} />
-
-      <div className="stack">
+    <AppShell
+      section="Dashboard"
+      nav={[
+        { to: '/owner', label: 'Dashboard', icon: '⌂', end: true },
+        { to: '/owner/price-board', label: 'Price Board', icon: '≡' },
+      ]}
+    >
+      <div className="shellInner">
         {error ? <div className="alert alert--bad">{error}</div> : null}
 
         {snapshot ? (
-          <div className="card">
-            <div className="row">
-              <h1 className="h1">Today</h1>
-              <Badge tone={snapshot.reconciliationStatus === 'confirmed' ? 'good' : snapshot.reconciliationStatus === 'cashier_submitted' ? 'warn' : 'neutral'}>
+          <div className="heroBanner">
+            <div className="heroBanner__text">
+              <div className="heroBanner__title">Welcome back</div>
+              <div className="heroBanner__sub">Here’s your business overview for today.</div>
+            </div>
+            <div className="heroBanner__actions">
+              <Link className="btn btn--ghost" to="/owner/price-board">
+                Price Board
+              </Link>
+              <Link className="btn btn--solidLight" to={`/owner/day/${snapshot.dayDate}`}>
+                View Today
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <div className="heroBanner heroBanner--loading">
+            <div className="heroBanner__title">Loading…</div>
+          </div>
+        )}
+
+        {snapshot ? (
+          <div className="statRow">
+            <div className="statCard">
+              <div className="statCard__label">Cars washed</div>
+              <div className="statCard__value">{snapshot.carsWashedToday}</div>
+            </div>
+            <div className="statCard">
+              <div className="statCard__label">Expected revenue</div>
+              <div className="statCard__value">{formatMoneyCents(snapshot.expectedRevenueTodayCents)}</div>
+            </div>
+            <div className="statCard">
+              <div className="statCard__label">Reconciliation</div>
+              <Badge
+                tone={
+                  snapshot.reconciliationStatus === 'confirmed'
+                    ? 'good'
+                    : snapshot.reconciliationStatus === 'cashier_submitted'
+                      ? 'warn'
+                      : 'neutral'
+                }
+              >
                 {snapshot.reconciliationStatus === 'confirmed'
                   ? 'Confirmed'
                   : snapshot.reconciliationStatus === 'cashier_submitted'
@@ -115,54 +156,60 @@ export function OwnerDashboard() {
                     : 'Pending'}
               </Badge>
             </div>
-
-            <div className="grid2">
-              <div className="stat">
-                <div className="muted">Cars washed</div>
-                <div className="big">{snapshot.carsWashedToday}</div>
-              </div>
-              <div className="stat">
-                <div className="muted">Expected revenue</div>
-                <div className="big">{formatMoneyCents(snapshot.expectedRevenueTodayCents)}</div>
-              </div>
-              <div className="stat">
-                <div className="muted">Today discrepancy</div>
-                <Badge tone={discrepancyTone(snapshot.todayDiscrepancyCashCents)}>
-                  {snapshot.todayDiscrepancyCashCents === null ? '—' : formatMoneyCents(snapshot.todayDiscrepancyCashCents)}
-                </Badge>
-              </div>
-              <div className="stat">
-                <div className="muted">Last confirmed</div>
-                <div className="row">
-                  <div className="muted">{snapshot.lastConfirmedDiscrepancy ? snapshot.lastConfirmedDiscrepancy.dayDate : '—'}</div>
-                  <Badge tone={discrepancyTone(snapshot.lastConfirmedDiscrepancy?.discrepancyCashCents ?? null)}>
-                    {snapshot.lastConfirmedDiscrepancy ? formatMoneyCents(snapshot.lastConfirmedDiscrepancy.discrepancyCashCents) : '—'}
-                  </Badge>
-                </div>
-              </div>
+            <div className="statCard">
+              <div className="statCard__label">Today discrepancy</div>
+              <Badge tone={discrepancyTone(snapshot.todayDiscrepancyCashCents)}>
+                {snapshot.todayDiscrepancyCashCents === null
+                  ? '—'
+                  : formatMoneyCents(snapshot.todayDiscrepancyCashCents)}
+              </Badge>
             </div>
+          </div>
+        ) : null}
 
+        <div className="dashGrid">
+          <div className="card">
             <div className="row">
-              <Link className="chip" to={`/owner/day/${snapshot.dayDate}`}>
-                View today’s ticket log
-              </Link>
-              {snapshot.reconciliationStatus === 'cashier_submitted' ? (
-                <Link className="chip chip--warn" to={`/owner/day/${snapshot.dayDate}`}>
-                  Review & confirm closeout
+              <h2 className="h2">Today’s tickets</h2>
+              {snapshot ? (
+                <Link className="btn btn--outline" to={`/owner/day/${snapshot.dayDate}`}>
+                  View today’s log
                 </Link>
               ) : null}
             </div>
+            {snapshot?.reconciliationStatus === 'cashier_submitted' ? (
+              <div className="callout callout--warn">
+                Cashier submitted closeout. Review and confirm.
+                <Link className="btn btn--solid btn--small" to={`/owner/day/${snapshot.dayDate}`}>
+                  Review
+                </Link>
+              </div>
+            ) : null}
+            <div className="muted">
+              Last confirmed discrepancy:{' '}
+              {snapshot?.lastConfirmedDiscrepancy
+                ? `${snapshot.lastConfirmedDiscrepancy.dayDate} (${formatMoneyCents(
+                    snapshot.lastConfirmedDiscrepancy.discrepancyCashCents,
+                  )})`
+                : '—'}
+            </div>
+            <div className="spacer12"></div>
+            <div className="emptyState">
+              <div className="emptyState__icon" aria-hidden="true">
+                ✓
+              </div>
+              <div className="emptyState__title">Quick access</div>
+              <div className="emptyState__sub">Open any day from the summary table below.</div>
+            </div>
           </div>
-        ) : (
-          <div className="card">Loading…</div>
-        )}
 
-        <div className="card">
-          <h2 className="h2">Last 30 days</h2>
-          <div className="muted">Expected revenue</div>
-          <BarChart points={revenuePoints} />
-          <div className="muted">Discrepancy (cash)</div>
-          <DivergingBarChart points={discrepancyPoints} />
+          <div className="card">
+            <h2 className="h2">Last 30 days</h2>
+            <div className="muted">Expected revenue</div>
+            <BarChart points={revenuePoints} />
+            <div className="muted">Discrepancy (cash)</div>
+            <DivergingBarChart points={discrepancyPoints} />
+          </div>
         </div>
 
         <div className="card">
@@ -171,33 +218,33 @@ export function OwnerDashboard() {
             <div className="row">
               <button
                 type="button"
-                className="chip"
+                className="btn btn--outline btn--small"
                 onClick={() => {
                   setSort('date')
                   setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
                 }}
               >
-                Sort: Date
+                Date
               </button>
               <button
                 type="button"
-                className="chip"
+                className="btn btn--outline btn--small"
                 onClick={() => {
                   setSort('revenue')
                   setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
                 }}
               >
-                Sort: Revenue
+                Revenue
               </button>
               <button
                 type="button"
-                className="chip"
+                className="btn btn--outline btn--small"
                 onClick={() => {
                   setSort('discrepancy')
                   setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
                 }}
               >
-                Sort: Discrepancy
+                Discrepancy
               </button>
             </div>
           </div>
@@ -223,13 +270,15 @@ export function OwnerDashboard() {
                   </Badge>
                 </div>
                 <div className="trow__cell trow__right">
-                  <Badge tone={statusTone(r.status)}>{r.status === 'cashier_submitted' ? 'Submitted' : r.status === 'confirmed' ? 'Confirmed' : 'Pending'}</Badge>
+                  <Badge tone={statusTone(r.status)}>
+                    {r.status === 'cashier_submitted' ? 'Submitted' : r.status === 'confirmed' ? 'Confirmed' : 'Pending'}
+                  </Badge>
                 </div>
               </Link>
             ))}
           </div>
         </div>
       </div>
-    </main>
+    </AppShell>
   )
 }

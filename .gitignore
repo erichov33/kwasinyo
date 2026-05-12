@@ -14,3 +14,4 @@ server/*.sqlite-journal
 
 .env
 .env.*
+.vercel

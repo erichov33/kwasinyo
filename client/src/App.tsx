@@ -10,12 +10,27 @@ import { OwnerPriceBoard } from './pages/OwnerPriceBoard'
 import { OwnerDay } from './pages/OwnerDay'
 
 function App() {
-  const { bootstrapped, user } = useAuth()
+  const { bootstrapped, apiError, user, refresh } = useAuth()
 
   if (bootstrapped === null) {
     return (
       <main className="page">
         <div className="card">Loading…</div>
+      </main>
+    )
+  }
+
+  if (apiError) {
+    return (
+      <main className="page">
+        <div className="card">
+          <div className="h1">Cannot reach server</div>
+          <div className="muted">{apiError}</div>
+          <div className="spacer12"></div>
+          <button type="button" className="primary" onClick={() => refresh()}>
+            Retry
+          </button>
+        </div>
       </main>
     )
   }

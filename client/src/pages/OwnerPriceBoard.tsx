@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { TopBar } from '../components/TopBar'
+import { AppShell } from '../components/AppShell'
 import { api } from '../lib/api'
 import { formatMoneyCents, parseMoneyToCents } from '../lib/money'
 
@@ -95,15 +95,21 @@ export function OwnerPriceBoard() {
   }
 
   return (
-    <main className="page">
-      <TopBar title="Owner" links={[{ to: '/owner', label: 'Dashboard' }, { to: '/owner/price-board', label: 'Price Board' }]} />
-
-      <div className="stack">
+    <AppShell
+      section="Price Board"
+      nav={[
+        { to: '/owner', label: 'Dashboard', icon: '⌂', end: true },
+        { to: '/owner/price-board', label: 'Price Board', icon: '≡' },
+      ]}
+    >
+      <div className="shellInner stack">
         {error ? <div className="alert alert--bad">{error}</div> : null}
 
         <div className="card">
-          <h1 className="h1">Price Board</h1>
-          <div className="grid2">
+          <div className="row">
+            <h1 className="h1">Price Board</h1>
+          </div>
+          <div className="dashGrid">
             <div className="card card--sub">
               <div className="row">
                 <h2 className="h2">Vehicle types</h2>
@@ -115,14 +121,16 @@ export function OwnerPriceBoard() {
                       <input
                         value={v.name}
                         onChange={(e) =>
-                          setVehicleTypes((prev) => prev.map((x) => (x.id === v.id ? { ...x, name: e.target.value } : x)))
+                          setVehicleTypes((prev) =>
+                            prev.map((x) => (x.id === v.id ? { ...x, name: e.target.value } : x)),
+                          )
                         }
                         onBlur={(e) => updateVehicle(v.id, { name: e.target.value.trim() || v.name })}
                       />
                       <div className="row">
                         <button
                           type="button"
-                          className={v.active ? 'chip chip--good' : 'chip'}
+                          className={v.active ? 'btn btn--outline btn--small' : 'btn btn--ghost btn--small'}
                           onClick={() => updateVehicle(v.id, { active: v.active ? 0 : 1 })}
                         >
                           {v.active ? 'Active' : 'Inactive'}
@@ -134,7 +142,7 @@ export function OwnerPriceBoard() {
               </div>
               <div className="row">
                 <input value={newVehicle} onChange={(e) => setNewVehicle(e.target.value)} placeholder="Add vehicle type" />
-                <button type="button" className="chip" onClick={() => addVehicle()}>
+                <button type="button" className="btn btn--solid btn--small" onClick={() => addVehicle()}>
                   Add
                 </button>
               </div>
@@ -151,14 +159,16 @@ export function OwnerPriceBoard() {
                       <input
                         value={s.name}
                         onChange={(e) =>
-                          setServiceTypes((prev) => prev.map((x) => (x.id === s.id ? { ...x, name: e.target.value } : x)))
+                          setServiceTypes((prev) =>
+                            prev.map((x) => (x.id === s.id ? { ...x, name: e.target.value } : x)),
+                          )
                         }
                         onBlur={(e) => updateService(s.id, { name: e.target.value.trim() || s.name })}
                       />
                       <div className="row">
                         <button
                           type="button"
-                          className={s.active ? 'chip chip--good' : 'chip'}
+                          className={s.active ? 'btn btn--outline btn--small' : 'btn btn--ghost btn--small'}
                           onClick={() => updateService(s.id, { active: s.active ? 0 : 1 })}
                         >
                           {s.active ? 'Active' : 'Inactive'}
@@ -170,7 +180,7 @@ export function OwnerPriceBoard() {
               </div>
               <div className="row">
                 <input value={newService} onChange={(e) => setNewService(e.target.value)} placeholder="Add service type" />
-                <button type="button" className="chip" onClick={() => addService()}>
+                <button type="button" className="btn btn--solid btn--small" onClick={() => addService()}>
                   Add
                 </button>
               </div>
@@ -214,6 +224,6 @@ export function OwnerPriceBoard() {
           </div>
         </div>
       </div>
-    </main>
+    </AppShell>
   )
 }

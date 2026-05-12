@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Badge } from '../components/Badge'
-import { TopBar } from '../components/TopBar'
+import { AppShell } from '../components/AppShell'
 import { api } from '../lib/api'
 import { formatDayDate } from '../lib/date'
 import { formatMoneyCents } from '../lib/money'
@@ -86,16 +86,14 @@ export function OwnerDay() {
   }
 
   return (
-    <main className="page">
-      <TopBar
-        title="Owner"
-        links={[
-          { to: '/owner', label: 'Dashboard' },
-          { to: '/owner/price-board', label: 'Price Board' },
-        ]}
-      />
-
-      <div className="stack">
+    <AppShell
+      section="Day View"
+      nav={[
+        { to: '/owner', label: 'Dashboard', icon: '⌂', end: true },
+        { to: '/owner/price-board', label: 'Price Board', icon: '≡' },
+      ]}
+    >
+      <div className="shellInner stack">
         {error ? <div className="alert alert--bad">{error}</div> : null}
 
         <div className="card">
@@ -109,22 +107,22 @@ export function OwnerDay() {
               <Badge tone="neutral">Pending</Badge>
             )}
           </div>
-          <div className="grid2">
-            <div className="stat">
-              <div className="muted">Tickets</div>
-              <div className="big">{totals.ticketsCount}</div>
+          <div className="statRow">
+            <div className="statCard">
+              <div className="statCard__label">Tickets</div>
+              <div className="statCard__value">{totals.ticketsCount}</div>
             </div>
-            <div className="stat">
-              <div className="muted">Expected revenue</div>
-              <div className="big">{formatMoneyCents(totals.expectedRevenueCents)}</div>
+            <div className="statCard">
+              <div className="statCard__label">Expected revenue</div>
+              <div className="statCard__value">{formatMoneyCents(totals.expectedRevenueCents)}</div>
             </div>
-            <div className="stat">
-              <div className="muted">Expected cash</div>
-              <div className="big">{formatMoneyCents(totals.expectedCashCents)}</div>
+            <div className="statCard">
+              <div className="statCard__label">Expected cash</div>
+              <div className="statCard__value">{formatMoneyCents(totals.expectedCashCents)}</div>
             </div>
-            <div className="stat">
-              <div className="muted">Quick</div>
-              <Link className="chip" to="/owner">
+            <div className="statCard">
+              <div className="statCard__label">Navigation</div>
+              <Link className="btn btn--outline btn--small" to="/owner">
                 Back to dashboard
               </Link>
             </div>
@@ -146,7 +144,7 @@ export function OwnerDay() {
                 <label>Owner note</label>
                 <textarea value={ownerNote} onChange={(e) => setOwnerNote(e.target.value)} rows={3} />
               </div>
-              <button type="button" className="primary" disabled={!canConfirm} onClick={() => confirm()}>
+              <button type="button" className="btn btn--solid" disabled={!canConfirm} onClick={() => confirm()}>
                 Confirm closeout
               </button>
             </div>
@@ -176,7 +174,6 @@ export function OwnerDay() {
           </div>
         </div>
       </div>
-    </main>
+    </AppShell>
   )
 }
-
