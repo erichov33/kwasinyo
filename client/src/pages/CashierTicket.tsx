@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ButtonGrid } from '../components/ButtonGrid'
 import { BottomBar } from '../components/BottomBar'
 import { Badge } from '../components/Badge'
+import { AppShell } from '../components/AppShell'
 import { api } from '../lib/api'
 import { formatMoneyCents, parseMoneyToCents } from '../lib/money'
 
@@ -98,128 +99,136 @@ export function CashierTicket() {
   }
 
   return (
-    <main className="page page--with-bottom">
-      <div className="stack">
-        <div className="card">
-          <div className="row">
-            <h1 className="h1">New Ticket</h1>
-            {override ? <Badge tone="warn">Override</Badge> : null}
-          </div>
-          {error ? <div className="alert alert--bad">{error}</div> : null}
-          {lastTicket ? (
-            <div className="alert alert--good">
-              <div className="row">
-                <div className="big">{lastTicket.ticketLabel}</div>
-                <div>{formatMoneyCents(lastTicket.priceCents)}</div>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="field">
-            <label>Plate number</label>
-            <input
-              value={plate}
-              onChange={(e) => setPlate(e.target.value)}
-              placeholder="e.g. KWA 123 GP"
-              autoCapitalize="characters"
-            />
-          </div>
-
-          <div className="field">
-            <label>Vehicle type</label>
-            <ButtonGrid items={vehicleTypes} selectedId={vehicleTypeId} onSelect={(v) => setVehicleTypeId(v.id)} />
-          </div>
-
-          <div className="field">
-            <label>Service</label>
-            <ButtonGrid items={serviceTypes} selectedId={serviceTypeId} onSelect={(s) => setServiceTypeId(s.id)} />
-          </div>
-
-          <div className="card card--sub">
+    <AppShell
+      section="Cashier"
+      nav={[
+        { to: '/cashier', label: 'New Ticket', icon: '+', end: true },
+        { to: '/cashier/closeout', label: 'Close Day', icon: '✓' },
+      ]}
+    >
+      <div className="shellInner page--with-bottom">
+        <div className="stack">
+          <div className="card">
             <div className="row">
-              <div className="muted">Price</div>
-              <div className="big">{priceCents === null ? '—' : formatMoneyCents(priceCents)}</div>
+              <h1 className="h1">New Ticket</h1>
+              {override ? <Badge tone="warn">Override</Badge> : null}
             </div>
-            {basePriceCents !== null && override ? (
-              <div className="muted">Base: {formatMoneyCents(basePriceCents)}</div>
+            {error ? <div className="alert alert--bad">{error}</div> : null}
+            {lastTicket ? (
+              <div className="alert alert--good">
+                <div className="row">
+                  <div className="big">{lastTicket.ticketLabel}</div>
+                  <div>{formatMoneyCents(lastTicket.priceCents)}</div>
+                </div>
+              </div>
             ) : null}
 
-            <div className="row">
-              <button
-                type="button"
-                className={paymentMethod === 'cash' ? 'seg seg--active' : 'seg'}
-                onClick={() => setPaymentMethod('cash')}
-              >
-                Cash
-              </button>
-              <button
-                type="button"
-                className={paymentMethod === 'card' ? 'seg seg--active' : 'seg'}
-                onClick={() => setPaymentMethod('card')}
-              >
-                Card
-              </button>
-              <button
-                type="button"
-                className={paymentMethod === 'other' ? 'seg seg--active' : 'seg'}
-                onClick={() => setPaymentMethod('other')}
-              >
-                Other
-              </button>
+            <div className="field">
+              <label>Plate number</label>
+              <input
+                value={plate}
+                onChange={(e) => setPlate(e.target.value)}
+                placeholder="e.g. KWA 123 GP"
+                autoCapitalize="characters"
+              />
             </div>
 
-            <div className="row">
-              <button type="button" className={override ? 'chip chip--warn' : 'chip'} onClick={() => setOverride(!override)}>
-                Manual price
-              </button>
-              {override ? (
-                <input
-                  className="money"
-                  inputMode="decimal"
-                  value={overrideInput}
-                  onChange={(e) => setOverrideInput(e.target.value)}
-                  placeholder="Amount"
-                />
-              ) : null}
+            <div className="field">
+              <label>Vehicle type</label>
+              <ButtonGrid items={vehicleTypes} selectedId={vehicleTypeId} onSelect={(v) => setVehicleTypeId(v.id)} />
             </div>
-          </div>
 
-          <button type="button" className="primary" disabled={!canIssue} onClick={() => issue()}>
-            Confirm payment & issue ticket
-          </button>
-        </div>
+            <div className="field">
+              <label>Service</label>
+              <ButtonGrid items={serviceTypes} selectedId={serviceTypeId} onSelect={(s) => setServiceTypeId(s.id)} />
+            </div>
 
-        <div className="card">
-          <div className="row">
-            <h2 className="h2">Today</h2>
-            <div className="muted">{tickets.length} tickets</div>
-          </div>
-          <div className="list">
-            {tickets.slice(0, 10).map((t) => (
-              <div key={t.ticketNumber} className="listrow">
-                <div className="listrow__main">
-                  <div className="listrow__title">
-                    #{String(t.ticketNumber).padStart(4, '0')} {t.plate}
-                  </div>
-                  <div className="listrow__sub">
-                    {t.vehicleTypeName} · {t.serviceTypeName} · {t.paymentMethod.toUpperCase()}
-                    {t.priceOverridden ? ' · OVERRIDE' : ''}
-                  </div>
-                </div>
-                <div className="listrow__amount">{formatMoneyCents(t.priceCents)}</div>
+            <div className="card card--sub">
+              <div className="row">
+                <div className="muted">Price</div>
+                <div className="big">{priceCents === null ? '—' : formatMoneyCents(priceCents)}</div>
               </div>
-            ))}
-            {tickets.length === 0 ? <div className="muted">No tickets yet.</div> : null}
+              {basePriceCents !== null && override ? (
+                <div className="muted">Base: {formatMoneyCents(basePriceCents)}</div>
+              ) : null}
+
+              <div className="row">
+                <button
+                  type="button"
+                  className={paymentMethod === 'cash' ? 'seg seg--active' : 'seg'}
+                  onClick={() => setPaymentMethod('cash')}
+                >
+                  Cash
+                </button>
+                <button
+                  type="button"
+                  className={paymentMethod === 'card' ? 'seg seg--active' : 'seg'}
+                  onClick={() => setPaymentMethod('card')}
+                >
+                  Card
+                </button>
+                <button
+                  type="button"
+                  className={paymentMethod === 'other' ? 'seg seg--active' : 'seg'}
+                  onClick={() => setPaymentMethod('other')}
+                >
+                  Other
+                </button>
+              </div>
+
+              <div className="row">
+                <button type="button" className={override ? 'chip chip--warn' : 'chip'} onClick={() => setOverride(!override)}>
+                  Manual price
+                </button>
+                {override ? (
+                  <input
+                    className="money"
+                    inputMode="decimal"
+                    value={overrideInput}
+                    onChange={(e) => setOverrideInput(e.target.value)}
+                    placeholder="Amount"
+                  />
+                ) : null}
+              </div>
+            </div>
+
+            <button type="button" className="primary" disabled={!canIssue} onClick={() => issue()}>
+              Confirm payment & issue ticket
+            </button>
+          </div>
+
+          <div className="card">
+            <div className="row">
+              <h2 className="h2">Today</h2>
+              <div className="muted">{tickets.length} tickets</div>
+            </div>
+            <div className="list">
+              {tickets.slice(0, 10).map((t) => (
+                <div key={t.ticketNumber} className="listrow">
+                  <div className="listrow__main">
+                    <div className="listrow__title">
+                      #{String(t.ticketNumber).padStart(4, '0')} {t.plate}
+                    </div>
+                    <div className="listrow__sub">
+                      {t.vehicleTypeName} · {t.serviceTypeName} · {t.paymentMethod.toUpperCase()}
+                      {t.priceOverridden ? ' · OVERRIDE' : ''}
+                    </div>
+                  </div>
+                  <div className="listrow__amount">{formatMoneyCents(t.priceCents)}</div>
+                </div>
+              ))}
+              {tickets.length === 0 ? <div className="muted">No tickets yet.</div> : null}
+            </div>
           </div>
         </div>
-      </div>
 
-      <BottomBar
-        items={[
-          { to: '/cashier', label: 'New Ticket', end: true },
-          { to: '/cashier/closeout', label: 'Close Day' },
-        ]}
-      />
-    </main>
+        <BottomBar
+          items={[
+            { to: '/cashier', label: 'New Ticket', end: true },
+            { to: '/cashier/closeout', label: 'Close Day' },
+          ]}
+        />
+      </div>
+    </AppShell>
   )
 }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BottomBar } from '../components/BottomBar'
 import { Badge } from '../components/Badge'
+import { AppShell } from '../components/AppShell'
 import { api } from '../lib/api'
 import { formatMoneyCents, parseMoneyToCents } from '../lib/money'
 
@@ -65,82 +66,90 @@ export function CashierCloseout() {
   }
 
   return (
-    <main className="page page--with-bottom">
-      <div className="stack">
-        <div className="card">
-          <div className="row">
-            <h1 className="h1">Close Day</h1>
-            {summary?.reconciliation?.ownerConfirmedAt ? (
-              <Badge tone="good">Confirmed</Badge>
-            ) : summary?.reconciliation ? (
-              <Badge tone="warn">Submitted</Badge>
+    <AppShell
+      section="Cashier"
+      nav={[
+        { to: '/cashier', label: 'New Ticket', icon: '+', end: true },
+        { to: '/cashier/closeout', label: 'Close Day', icon: '✓' },
+      ]}
+    >
+      <div className="shellInner page--with-bottom">
+        <div className="stack">
+          <div className="card">
+            <div className="row">
+              <h1 className="h1">Close Day</h1>
+              {summary?.reconciliation?.ownerConfirmedAt ? (
+                <Badge tone="good">Confirmed</Badge>
+              ) : summary?.reconciliation ? (
+                <Badge tone="warn">Submitted</Badge>
+              ) : (
+                <Badge tone="neutral">Pending</Badge>
+              )}
+            </div>
+            {error ? <div className="alert alert--bad">{error}</div> : null}
+
+            {summary ? (
+              <>
+                <div className="kv">
+                  <div className="kv__row">
+                    <div className="muted">Tickets</div>
+                    <div className="big">{summary.ticketsCount}</div>
+                  </div>
+                  <div className="kv__row">
+                    <div className="muted">Expected cash</div>
+                    <div className="big">{formatMoneyCents(summary.expectedCashCents)}</div>
+                  </div>
+                  <div className="kv__row">
+                    <div className="muted">Total revenue</div>
+                    <div className="big">{formatMoneyCents(summary.expectedRevenueCents)}</div>
+                  </div>
+                </div>
+
+                {summary.reconciliation ? (
+                  <div className="card card--sub">
+                    <div className="row">
+                      <div className="muted">Declared cash</div>
+                      <div className="big">{formatMoneyCents(summary.reconciliation.declaredCashCents)}</div>
+                    </div>
+                    <div className="row">
+                      <div className="muted">Discrepancy</div>
+                      <Badge tone={discrepancyTone(summary.reconciliation.discrepancyCashCents)}>
+                        {formatMoneyCents(summary.reconciliation.discrepancyCashCents)}
+                      </Badge>
+                    </div>
+                    <div className="muted">Day is locked for cashier.</div>
+                  </div>
+                ) : (
+                  <div className="card card--sub">
+                    <div className="field">
+                      <label>Actual cash on hand</label>
+                      <input
+                        className="money"
+                        inputMode="decimal"
+                        value={declaredInput}
+                        onChange={(e) => setDeclaredInput(e.target.value)}
+                        placeholder="Amount"
+                      />
+                    </div>
+                    <button type="button" className="primary" disabled={!canSubmit} onClick={() => submit()}>
+                      Submit declaration (locks the day)
+                    </button>
+                  </div>
+                )}
+              </>
             ) : (
-              <Badge tone="neutral">Pending</Badge>
+              <div className="muted">Loading…</div>
             )}
           </div>
-          {error ? <div className="alert alert--bad">{error}</div> : null}
-
-          {summary ? (
-            <>
-              <div className="kv">
-                <div className="kv__row">
-                  <div className="muted">Tickets</div>
-                  <div className="big">{summary.ticketsCount}</div>
-                </div>
-                <div className="kv__row">
-                  <div className="muted">Expected cash</div>
-                  <div className="big">{formatMoneyCents(summary.expectedCashCents)}</div>
-                </div>
-                <div className="kv__row">
-                  <div className="muted">Total revenue</div>
-                  <div className="big">{formatMoneyCents(summary.expectedRevenueCents)}</div>
-                </div>
-              </div>
-
-              {summary.reconciliation ? (
-                <div className="card card--sub">
-                  <div className="row">
-                    <div className="muted">Declared cash</div>
-                    <div className="big">{formatMoneyCents(summary.reconciliation.declaredCashCents)}</div>
-                  </div>
-                  <div className="row">
-                    <div className="muted">Discrepancy</div>
-                    <Badge tone={discrepancyTone(summary.reconciliation.discrepancyCashCents)}>
-                      {formatMoneyCents(summary.reconciliation.discrepancyCashCents)}
-                    </Badge>
-                  </div>
-                  <div className="muted">Day is locked for cashier.</div>
-                </div>
-              ) : (
-                <div className="card card--sub">
-                  <div className="field">
-                    <label>Actual cash on hand</label>
-                    <input
-                      className="money"
-                      inputMode="decimal"
-                      value={declaredInput}
-                      onChange={(e) => setDeclaredInput(e.target.value)}
-                      placeholder="Amount"
-                    />
-                  </div>
-                  <button type="button" className="primary" disabled={!canSubmit} onClick={() => submit()}>
-                    Submit declaration (locks the day)
-                  </button>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="muted">Loading…</div>
-          )}
         </div>
-      </div>
 
-      <BottomBar
-        items={[
-          { to: '/cashier', label: 'New Ticket', end: true },
-          { to: '/cashier/closeout', label: 'Close Day' },
-        ]}
-      />
-    </main>
+        <BottomBar
+          items={[
+            { to: '/cashier', label: 'New Ticket', end: true },
+            { to: '/cashier/closeout', label: 'Close Day' },
+          ]}
+        />
+      </div>
+    </AppShell>
   )
 }

@@ -365,6 +365,15 @@ label {
   padding: 10px 14px;
 }
 
+@media (min-width: 921px) {
+  .bottombar {
+    display: none;
+  }
+  .page--with-bottom {
+    padding-bottom: 14px;
+  }
+}
+
 .bottombar__nav {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
