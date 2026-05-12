@@ -8,6 +8,7 @@ import { CashierCloseout } from './pages/CashierCloseout'
 import { OwnerDashboard } from './pages/OwnerDashboard'
 import { OwnerPriceBoard } from './pages/OwnerPriceBoard'
 import { OwnerDay } from './pages/OwnerDay'
+import { OwnerReports } from './pages/OwnerReports'
 
 function App() {
   const { bootstrapped, apiError, user, refresh } = useAuth()
@@ -56,6 +57,7 @@ function App() {
       ) : (
         <>
           <Route path="/owner" element={<OwnerDashboard />} />
+          <Route path="/owner/reports" element={<OwnerReports />} />
           <Route path="/owner/price-board" element={<OwnerPriceBoard />} />
           <Route path="/owner/day/:date" element={<OwnerDay />} />
           <Route path="*" element={<Navigate to="/owner" replace />} />

@@ -90,6 +90,7 @@ export function OwnerDay() {
       section="Day View"
       nav={[
         { to: '/owner', label: 'Dashboard', icon: '⌂', end: true },
+        { to: '/owner/reports', label: 'Reports', icon: '▦' },
         { to: '/owner/price-board', label: 'Price Board', icon: '≡' },
       ]}
     >

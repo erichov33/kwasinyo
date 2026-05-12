@@ -76,6 +76,17 @@ textarea {
   padding: 12px 14px;
 }
 
+.select {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 12px 40px 12px 14px;
+  appearance: none;
+  box-shadow: var(--shadowSoft);
+}
+
 textarea {
   resize: vertical;
 }
@@ -708,6 +719,30 @@ label {
   margin: 0 auto;
 }
 
+.filterBar {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.filterBar__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 170px;
+  gap: 12px;
+  align-items: end;
+}
+
+@media (max-width: 920px) {
+  .filterBar__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.filterBar__action {
+  display: flex;
+  flex-direction: column;
+}
+
 .heroBanner {
   border-radius: 18px;
   padding: 18px;
@@ -879,4 +914,53 @@ label {
 
 .spacer12 {
   height: 12px;
+}
+
+.statusBars {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.statusRow {
+  display: grid;
+  grid-template-columns: 130px 1fr 40px;
+  gap: 10px;
+  align-items: center;
+}
+
+.statusRow__label {
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.statusRow__bar {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.22);
+  overflow: hidden;
+}
+
+.statusRow__fill {
+  height: 100%;
+  border-radius: 999px;
+}
+
+.statusRow__fill--neutral {
+  background: rgba(148, 163, 184, 0.7);
+}
+
+.statusRow__fill--warn {
+  background: rgba(217, 119, 6, 0.8);
+}
+
+.statusRow__fill--good {
+  background: rgba(22, 163, 74, 0.8);
+}
+
+.statusRow__value {
+  text-align: right;
+  font-weight: 900;
 }
