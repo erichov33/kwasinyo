@@ -1,56 +1,49 @@
 import { z } from 'zod'
-import { db } from '../db.js'
+import { query } from '../db.js'
 import { requireAuth, requireRole } from '../auth.js'
 import { getLocalDayDate } from '../util.js'
 
-function computeDayTotals(dayDate) {
-  const rows = db
-    .prepare(
-      `
-      SELECT payment_method AS paymentMethod, price_cents AS priceCents
+async function computeDayTotals(dayDate) {
+  const r = await query(
+    `
+      SELECT
+        COUNT(*)::int AS "ticketsCount",
+        COALESCE(SUM(price_cents), 0)::int AS "expectedRevenueCents",
+        COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN price_cents ELSE 0 END), 0)::int AS "expectedCashCents"
       FROM tickets
-      WHERE day_date = ? AND voided_at IS NULL
+      WHERE day_date = $1 AND voided_at IS NULL
     `,
-    )
-    .all(dayDate)
-
-  let expectedRevenueCents = 0
-  let expectedCashCents = 0
-  for (const r of rows) {
-    expectedRevenueCents += r.priceCents
-    if (r.paymentMethod === 'cash') expectedCashCents += r.priceCents
-  }
-
-  const ticketsCount = rows.length
-  return { ticketsCount, expectedRevenueCents, expectedCashCents }
+    [dayDate],
+  )
+  return r.rows[0] ?? { ticketsCount: 0, expectedRevenueCents: 0, expectedCashCents: 0 }
 }
 
-function getReconciliation(dayDate) {
-  return db
-    .prepare(
-      `
+async function getReconciliation(dayDate) {
+  const r = await query(
+    `
       SELECT
-        day_date AS dayDate,
-        tickets_count AS ticketsCount,
-        expected_revenue_cents AS expectedRevenueCents,
-        expected_cash_cents AS expectedCashCents,
-        declared_cash_cents AS declaredCashCents,
-        discrepancy_cash_cents AS discrepancyCashCents,
-        cashier_submitted_at AS cashierSubmittedAt,
-        owner_confirmed_at AS ownerConfirmedAt,
-        owner_note AS ownerNote
+        day_date AS "dayDate",
+        tickets_count AS "ticketsCount",
+        expected_revenue_cents AS "expectedRevenueCents",
+        expected_cash_cents AS "expectedCashCents",
+        declared_cash_cents AS "declaredCashCents",
+        discrepancy_cash_cents AS "discrepancyCashCents",
+        cashier_submitted_at AS "cashierSubmittedAt",
+        owner_confirmed_at AS "ownerConfirmedAt",
+        owner_note AS "ownerNote"
       FROM day_reconciliations
-      WHERE day_date = ?
+      WHERE day_date = $1
     `,
-    )
-    .get(dayDate)
+    [dayDate],
+  )
+  return r.rows[0] ?? null
 }
 
 export function attachCloseoutRoutes(app) {
-  app.get('/api/closeout/today-summary', requireAuth, (req, res) => {
+  app.get('/api/closeout/today-summary', requireAuth, async (_req, res) => {
     const dayDate = getLocalDayDate()
-    const totals = computeDayTotals(dayDate)
-    const rec = getReconciliation(dayDate)
+    const totals = await computeDayTotals(dayDate)
+    const rec = await getReconciliation(dayDate)
 
     res.json({
       dayDate,
@@ -59,9 +52,9 @@ export function attachCloseoutRoutes(app) {
     })
   })
 
-  app.post('/api/closeout/cashier-submit', requireRole('cashier'), (req, res) => {
+  app.post('/api/closeout/cashier-submit', requireRole('cashier'), async (req, res) => {
     const dayDate = getLocalDayDate()
-    const existing = getReconciliation(dayDate)
+    const existing = await getReconciliation(dayDate)
     if (existing) return res.status(409).json({ error: 'already_submitted' })
 
     const schema = z.object({
@@ -70,32 +63,33 @@ export function attachCloseoutRoutes(app) {
     const parsed = schema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ error: 'invalid_input' })
 
-    const totals = computeDayTotals(dayDate)
+    const totals = await computeDayTotals(dayDate)
     const declaredCashCents = parsed.data.declaredCashCents
     const discrepancyCashCents = declaredCashCents - totals.expectedCashCents
     const now = new Date().toISOString()
 
-    db.prepare(
+    await query(
       `
       INSERT INTO day_reconciliations
         (day_date, tickets_count, expected_revenue_cents, expected_cash_cents, declared_cash_cents, discrepancy_cash_cents, cashier_submitted_at)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?)
+        ($1, $2, $3, $4, $5, $6, $7)
     `,
-    ).run(
-      dayDate,
-      totals.ticketsCount,
-      totals.expectedRevenueCents,
-      totals.expectedCashCents,
-      declaredCashCents,
-      discrepancyCashCents,
-      now,
+      [
+        dayDate,
+        totals.ticketsCount,
+        totals.expectedRevenueCents,
+        totals.expectedCashCents,
+        declaredCashCents,
+        discrepancyCashCents,
+        now,
+      ],
     )
 
-    res.json({ ok: true, reconciliation: getReconciliation(dayDate) })
+    res.json({ ok: true, reconciliation: await getReconciliation(dayDate) })
   })
 
-  app.post('/api/closeout/owner-confirm', requireRole('owner'), (req, res) => {
+  app.post('/api/closeout/owner-confirm', requireRole('owner'), async (req, res) => {
     const schema = z.object({
       dayDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       ownerNote: z.string().trim().max(500).optional(),
@@ -103,19 +97,20 @@ export function attachCloseoutRoutes(app) {
     const parsed = schema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ error: 'invalid_input' })
 
-    const existing = getReconciliation(parsed.data.dayDate)
+    const existing = await getReconciliation(parsed.data.dayDate)
     if (!existing) return res.status(404).json({ error: 'not_submitted' })
     if (existing.ownerConfirmedAt) return res.status(409).json({ error: 'already_confirmed' })
 
     const now = new Date().toISOString()
-    db.prepare(
+    await query(
       `
       UPDATE day_reconciliations
-      SET owner_confirmed_at = ?, owner_note = ?
-      WHERE day_date = ?
+      SET owner_confirmed_at = $1, owner_note = $2
+      WHERE day_date = $3
     `,
-    ).run(now, parsed.data.ownerNote ?? null, parsed.data.dayDate)
+      [now, parsed.data.ownerNote ?? null, parsed.data.dayDate],
+    )
 
-    res.json({ ok: true, reconciliation: getReconciliation(parsed.data.dayDate) })
+    res.json({ ok: true, reconciliation: await getReconciliation(parsed.data.dayDate) })
   })
 }

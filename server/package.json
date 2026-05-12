@@ -16,6 +16,7 @@
     "better-sqlite3": "^12.9.0",
     "cookie-session": "^2.1.1",
     "express": "^5.2.1",
+    "pg": "^8.16.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {

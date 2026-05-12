@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { db } from '../db.js'
+import { query } from '../db.js'
 import { requireRole } from '../auth.js'
 import { clampInt, getLocalDayDate } from '../util.js'
 
@@ -31,92 +31,58 @@ function listDaysBetween(startDayDate, endDayDate) {
   return days
 }
 
-function getTicketTotalsByDay(dayDates) {
-  if (dayDates.length === 0) return new Map()
-  const placeholders = dayDates.map(() => '?').join(',')
-  const rows = db
-    .prepare(
-      `
-      SELECT day_date AS dayDate, COUNT(*) AS ticketsCount, SUM(price_cents) AS expectedRevenueCents
-      FROM tickets
-      WHERE day_date IN (${placeholders}) AND voided_at IS NULL
-      GROUP BY day_date
-    `,
-    )
-    .all(...dayDates)
-  const map = new Map()
-  for (const r of rows) {
-    map.set(r.dayDate, {
-      ticketsCount: r.ticketsCount ?? 0,
-      expectedRevenueCents: r.expectedRevenueCents ?? 0,
-    })
-  }
-  return map
+function startOfWeek(dayDate) {
+  const [y, m, d] = dayDate.split('-').map((x) => Number(x))
+  const dt = new Date(y, m - 1, d)
+  const delta = (dt.getDay() + 6) % 7
+  dt.setDate(dt.getDate() - delta)
+  return getLocalDayDate(dt)
 }
 
-function getReconciliationsByDay(dayDates) {
-  if (dayDates.length === 0) return new Map()
-  const placeholders = dayDates.map(() => '?').join(',')
-  const rows = db
-    .prepare(
-      `
-      SELECT
-        day_date AS dayDate,
-        tickets_count AS ticketsCount,
-        expected_revenue_cents AS expectedRevenueCents,
-        expected_cash_cents AS expectedCashCents,
-        declared_cash_cents AS declaredCashCents,
-        discrepancy_cash_cents AS discrepancyCashCents,
-        cashier_submitted_at AS cashierSubmittedAt,
-        owner_confirmed_at AS ownerConfirmedAt
-      FROM day_reconciliations
-      WHERE day_date IN (${placeholders})
-    `,
-    )
-    .all(...dayDates)
-  const map = new Map()
-  for (const r of rows) map.set(r.dayDate, r)
-  return map
-}
-
-function getLastConfirmedDiscrepancy() {
-  const row = db
-    .prepare(
-      `
-      SELECT day_date AS dayDate, discrepancy_cash_cents AS discrepancyCashCents
+async function getLastConfirmedDiscrepancy() {
+  const r = await query(
+    `
+      SELECT day_date AS "dayDate", discrepancy_cash_cents AS "discrepancyCashCents"
       FROM day_reconciliations
       WHERE owner_confirmed_at IS NOT NULL
       ORDER BY day_date DESC
       LIMIT 1
     `,
-    )
-    .get()
-  if (!row) return null
-  return row
+  )
+  return r.rows[0] ?? null
 }
 
 export function attachOwnerRoutes(app) {
-  app.get('/api/owner/today-snapshot', requireRole('owner'), (_req, res) => {
+  app.get('/api/owner/today-snapshot', requireRole('owner'), async (_req, res) => {
     const dayDate = getLocalDayDate()
-    const totals = db
-      .prepare(
-        `
-        SELECT COUNT(*) AS ticketsCount, IFNULL(SUM(price_cents), 0) AS expectedRevenueCents
+    const totalsRes = await query(
+      `
+        SELECT COUNT(*)::int AS "ticketsCount", COALESCE(SUM(price_cents), 0)::int AS "expectedRevenueCents"
         FROM tickets
-        WHERE day_date = ? AND voided_at IS NULL
+        WHERE day_date = $1 AND voided_at IS NULL
       `,
-      )
-      .get(dayDate)
+      [dayDate],
+    )
+    const totals = totalsRes.rows[0] ?? { ticketsCount: 0, expectedRevenueCents: 0 }
 
-    const rec = db
-      .prepare('SELECT cashier_submitted_at AS cashierSubmittedAt, owner_confirmed_at AS ownerConfirmedAt, discrepancy_cash_cents AS discrepancyCashCents FROM day_reconciliations WHERE day_date = ?')
-      .get(dayDate)
+    const recRes = await query(
+      `
+        SELECT
+          cashier_submitted_at AS "cashierSubmittedAt",
+          owner_confirmed_at AS "ownerConfirmedAt",
+          discrepancy_cash_cents AS "discrepancyCashCents"
+        FROM day_reconciliations
+        WHERE day_date = $1
+      `,
+      [dayDate],
+    )
+    const rec = recRes.rows[0] ?? null
 
     let reconciliationStatus = 'pending'
     if (rec?.cashierSubmittedAt && !rec?.ownerConfirmedAt) reconciliationStatus = 'cashier_submitted'
     if (rec?.ownerConfirmedAt) reconciliationStatus = 'confirmed'
 
-    const last = getLastConfirmedDiscrepancy()
+    const last = await getLastConfirmedDiscrepancy()
 
     res.json({
       dayDate,
@@ -128,12 +94,38 @@ export function attachOwnerRoutes(app) {
     })
   })
 
-  app.get('/api/owner/history', requireRole('owner'), (req, res) => {
+  app.get('/api/owner/history', requireRole('owner'), async (req, res) => {
     const daysParam = Number(req.query.days)
     const days = clampInt(daysParam, { min: 7, max: 90 })
     const dayDates = listLastDays(days)
-    const ticketTotals = getTicketTotalsByDay(dayDates)
-    const recs = getReconciliationsByDay(dayDates)
+    const start = dayDates[0]
+    const end = dayDates[dayDates.length - 1]
+
+    const ticketTotalsRes = await query(
+      `
+        SELECT day_date AS "dayDate", COUNT(*)::int AS "ticketsCount", COALESCE(SUM(price_cents), 0)::int AS "expectedRevenueCents"
+        FROM tickets
+        WHERE day_date >= $1 AND day_date <= $2 AND voided_at IS NULL
+        GROUP BY day_date
+      `,
+      [start, end],
+    )
+    const ticketTotals = new Map(ticketTotalsRes.rows.map((r) => [r.dayDate, r]))
+
+    const recsRes = await query(
+      `
+        SELECT
+          day_date AS "dayDate",
+          declared_cash_cents AS "declaredCashCents",
+          discrepancy_cash_cents AS "discrepancyCashCents",
+          cashier_submitted_at AS "cashierSubmittedAt",
+          owner_confirmed_at AS "ownerConfirmedAt"
+        FROM day_reconciliations
+        WHERE day_date >= $1 AND day_date <= $2
+      `,
+      [start, end],
+    )
+    const recs = new Map(recsRes.rows.map((r) => [r.dayDate, r]))
 
     const rows = dayDates
       .map((d) => {
@@ -156,7 +148,7 @@ export function attachOwnerRoutes(app) {
     res.json({ days, rows })
   })
 
-  app.get('/api/owner/reports', requireRole('owner'), (req, res) => {
+  app.get('/api/owner/reports', requireRole('owner'), async (req, res) => {
     const schema = z
       .object({
         start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -177,74 +169,72 @@ export function attachOwnerRoutes(app) {
     if (days.length === 0) return res.status(400).json({ error: 'invalid_range' })
     if (days.length > 120) return res.status(400).json({ error: 'range_too_large' })
 
-    const placeholders = days.map(() => '?').join(',')
     const group = parsed.data.group ?? 'day'
 
-    const totals = db
-      .prepare(
-        `
+    const totalsRes = await query(
+      `
         SELECT
-          COUNT(*) AS ticketsCount,
-          IFNULL(SUM(price_cents), 0) AS totalRevenueCents,
-          COUNT(DISTINCT plate) AS uniquePlatesCount
+          COUNT(*)::int AS "ticketsCount",
+          COALESCE(SUM(price_cents), 0)::int AS "totalRevenueCents",
+          COUNT(DISTINCT plate)::int AS "uniquePlatesCount"
         FROM tickets
-        WHERE day_date IN (${placeholders}) AND voided_at IS NULL
+        WHERE day_date >= $1 AND day_date <= $2 AND voided_at IS NULL
       `,
-      )
-      .get(...days)
+      [start, end],
+    )
+    const totals = totalsRes.rows[0] ?? { ticketsCount: 0, totalRevenueCents: 0, uniquePlatesCount: 0 }
 
-    const cashTotals = db
-      .prepare(
-        `
+    const cashTotalsRes = await query(
+      `
         SELECT
-          IFNULL(SUM(expected_cash_cents), 0) AS expectedCashCents,
-          IFNULL(SUM(declared_cash_cents), 0) AS declaredCashCents,
-          IFNULL(SUM(discrepancy_cash_cents), 0) AS discrepancyCashCents
+          COALESCE(SUM(expected_cash_cents), 0)::int AS "expectedCashCents",
+          COALESCE(SUM(declared_cash_cents), 0)::int AS "declaredCashCents",
+          COALESCE(SUM(discrepancy_cash_cents), 0)::int AS "discrepancyCashCents"
         FROM day_reconciliations
-        WHERE day_date IN (${placeholders})
+        WHERE day_date >= $1 AND day_date <= $2
       `,
-      )
-      .get(...days)
+      [start, end],
+    )
+    const cashTotals = cashTotalsRes.rows[0] ?? { expectedCashCents: 0, declaredCashCents: 0, discrepancyCashCents: 0 }
 
-    const repeat = db
-      .prepare(
-        `
-        SELECT COUNT(*) AS repeatPlatesCount
+    const repeatRes = await query(
+      `
+        SELECT COUNT(*)::int AS "repeatPlatesCount"
         FROM (
           SELECT plate
           FROM tickets
-          WHERE day_date IN (${placeholders}) AND voided_at IS NULL
+          WHERE day_date >= $1 AND day_date <= $2 AND voided_at IS NULL
           GROUP BY plate
           HAVING COUNT(*) >= 2
         ) rp
       `,
-      )
-      .get(...days)
+      [start, end],
+    )
+    const repeat = repeatRes.rows[0] ?? { repeatPlatesCount: 0 }
 
-    const serviceRows = db
-      .prepare(
-        `
-        SELECT service_type_name AS serviceTypeName, COUNT(*) AS ticketsCount, IFNULL(SUM(price_cents), 0) AS revenueCents
+    const serviceRes = await query(
+      `
+        SELECT service_type_name AS "serviceTypeName", COUNT(*)::int AS "ticketsCount", COALESCE(SUM(price_cents), 0)::int AS "revenueCents"
         FROM tickets
-        WHERE day_date IN (${placeholders}) AND voided_at IS NULL
+        WHERE day_date >= $1 AND day_date <= $2 AND voided_at IS NULL
         GROUP BY service_type_name
         ORDER BY revenueCents DESC, ticketsCount DESC
       `,
-      )
-      .all(...days)
+      [start, end],
+    )
+    const serviceRows = serviceRes.rows
 
-    const hourRows = db
-      .prepare(
-        `
-        SELECT substr(created_at, 12, 2) AS hour, COUNT(*) AS ticketsCount, IFNULL(SUM(price_cents), 0) AS revenueCents
+    const hourRes = await query(
+      `
+        SELECT substring(created_at from 12 for 2) AS hour, COUNT(*)::int AS "ticketsCount", COALESCE(SUM(price_cents), 0)::int AS "revenueCents"
         FROM tickets
-        WHERE day_date IN (${placeholders}) AND voided_at IS NULL
+        WHERE day_date >= $1 AND day_date <= $2 AND voided_at IS NULL
         GROUP BY hour
         ORDER BY hour ASC
       `,
-      )
-      .all(...days)
-    const hourMap = new Map(hourRows.map((r) => [Number(r.hour), r]))
+      [start, end],
+    )
+    const hourMap = new Map(hourRes.rows.map((r) => [Number(r.hour), r]))
     const peakHours = Array.from({ length: 24 }).map((_, h) => {
       const r = hourMap.get(h) ?? null
       return {
@@ -254,47 +244,49 @@ export function attachOwnerRoutes(app) {
       }
     })
 
-    const paymentRows = db
-      .prepare(
-        `
-        SELECT payment_method AS paymentMethod, COUNT(*) AS ticketsCount, IFNULL(SUM(price_cents), 0) AS revenueCents
+    const paymentRes = await query(
+      `
+        SELECT payment_method AS "paymentMethod", COUNT(*)::int AS "ticketsCount", COALESCE(SUM(price_cents), 0)::int AS "revenueCents"
         FROM tickets
-        WHERE day_date IN (${placeholders}) AND voided_at IS NULL
+        WHERE day_date >= $1 AND day_date <= $2 AND voided_at IS NULL
         GROUP BY payment_method
       `,
-      )
-      .all(...days)
+      [start, end],
+    )
+    const paymentRows = paymentRes.rows
 
-    const recRows = db
-      .prepare(
-        `
-        SELECT day_date AS dayDate, discrepancy_cash_cents AS discrepancyCashCents, cashier_submitted_at AS cashierSubmittedAt, owner_confirmed_at AS ownerConfirmedAt
+    const recRowsRes = await query(
+      `
+        SELECT
+          day_date AS "dayDate",
+          discrepancy_cash_cents AS "discrepancyCashCents",
+          cashier_submitted_at AS "cashierSubmittedAt",
+          owner_confirmed_at AS "ownerConfirmedAt"
         FROM day_reconciliations
-        WHERE day_date IN (${placeholders})
+        WHERE day_date >= $1 AND day_date <= $2
       `,
-      )
-      .all(...days)
-    const recMap = new Map(recRows.map((r) => [r.dayDate, r]))
+      [start, end],
+    )
+    const recMap = new Map(recRowsRes.rows.map((r) => [r.dayDate, r]))
 
     let pendingDays = 0
     let cashierSubmittedDays = 0
     let confirmedDays = 0
 
-    const makeDaySeries = () => {
-      const byDay = db
-        .prepare(
-          `
-          SELECT day_date AS key, day_date AS label, COUNT(*) AS ticketsCount, IFNULL(SUM(price_cents), 0) AS revenueCents
-          FROM tickets
-          WHERE day_date IN (${placeholders}) AND voided_at IS NULL
-          GROUP BY day_date
-        `,
-        )
-        .all(...days)
-      const byDayMap = new Map(byDay.map((r) => [r.key, r]))
+    const ticketsByDayRes = await query(
+      `
+        SELECT day_date AS "dayDate", COUNT(*)::int AS "ticketsCount", COALESCE(SUM(price_cents), 0)::int AS "revenueCents"
+        FROM tickets
+        WHERE day_date >= $1 AND day_date <= $2 AND voided_at IS NULL
+        GROUP BY day_date
+      `,
+      [start, end],
+    )
+    const ticketsByDay = new Map(ticketsByDayRes.rows.map((r) => [r.dayDate, r]))
 
-      return days.map((d) => {
-        const t = byDayMap.get(d) ?? { ticketsCount: 0, revenueCents: 0 }
+    const makeDaySeries = () =>
+      days.map((d) => {
+        const t = ticketsByDay.get(d) ?? { ticketsCount: 0, revenueCents: 0 }
         const rec = recMap.get(d) ?? null
         let status = 'pending'
         if (rec?.cashierSubmittedAt && !rec?.ownerConfirmedAt) status = 'cashier_submitted'
@@ -302,7 +294,6 @@ export function attachOwnerRoutes(app) {
         if (status === 'pending') pendingDays += 1
         if (status === 'cashier_submitted') cashierSubmittedDays += 1
         if (status === 'confirmed') confirmedDays += 1
-
         return {
           key: d,
           label: d,
@@ -314,133 +305,81 @@ export function attachOwnerRoutes(app) {
           status,
         }
       })
-    }
 
     const makeWeekSeries = () => {
-      const tickets = db
-        .prepare(
-          `
-          SELECT
-            date(day_date, 'weekday 0', '-6 days') AS weekStart,
-            COUNT(*) AS ticketsCount,
-            IFNULL(SUM(price_cents), 0) AS revenueCents
-          FROM tickets
-          WHERE day_date IN (${placeholders}) AND voided_at IS NULL
-          GROUP BY weekStart
-          ORDER BY weekStart ASC
-        `,
-        )
-        .all(...days)
-      const ticketMap = new Map(tickets.map((r) => [r.weekStart, r]))
-
-      const recs = db
-        .prepare(
-          `
-          SELECT
-            date(day_date, 'weekday 0', '-6 days') AS weekStart,
-            IFNULL(SUM(discrepancy_cash_cents), 0) AS discrepancyCashCents,
-            COUNT(*) AS submittedDays,
-            SUM(CASE WHEN owner_confirmed_at IS NOT NULL THEN 1 ELSE 0 END) AS confirmedDays
-          FROM day_reconciliations
-          WHERE day_date IN (${placeholders})
-          GROUP BY weekStart
-        `,
-        )
-        .all(...days)
-      const recMap2 = new Map(recs.map((r) => [r.weekStart, r]))
-
-      const weekStarts = [...new Set(days.map((d) => db.prepare("SELECT date(?, 'weekday 0', '-6 days') AS w").get(d).w))].sort()
+      const bucket = new Map()
+      for (const d of days) {
+        const ws = startOfWeek(d)
+        const t = ticketsByDay.get(d) ?? { ticketsCount: 0, revenueCents: 0 }
+        const r = recMap.get(d) ?? null
+        const cur = bucket.get(ws) ?? { ticketsCount: 0, revenueCents: 0, discrepancyCashCents: 0, submittedDays: 0, confirmedDays: 0 }
+        cur.ticketsCount += t.ticketsCount ?? 0
+        cur.revenueCents += t.revenueCents ?? 0
+        if (r?.cashierSubmittedAt) cur.submittedDays += 1
+        if (r?.ownerConfirmedAt) cur.confirmedDays += 1
+        if (r?.discrepancyCashCents !== null && r?.discrepancyCashCents !== undefined) cur.discrepancyCashCents += r.discrepancyCashCents
+        bucket.set(ws, cur)
+      }
+      const weekStarts = [...bucket.keys()].sort()
       return weekStarts.map((ws) => {
-        const t = ticketMap.get(ws) ?? { ticketsCount: 0, revenueCents: 0 }
-        const r = recMap2.get(ws) ?? null
-        const start2 = ws
-        const end2 = addDays(ws, 6)
+        const b = bucket.get(ws)
         let status = 'pending'
-        if (r?.submittedDays > 0) status = 'cashier_submitted'
-        if (r?.confirmedDays === r?.submittedDays && r?.submittedDays > 0) status = 'confirmed'
+        if (b.submittedDays > 0) status = 'cashier_submitted'
+        if (b.confirmedDays === b.submittedDays && b.submittedDays > 0) status = 'confirmed'
         if (status === 'pending') pendingDays += 1
         if (status === 'cashier_submitted') cashierSubmittedDays += 1
         if (status === 'confirmed') confirmedDays += 1
         return {
           key: ws,
           label: ws,
-          start: start2,
-          end: end2,
-          ticketsCount: t.ticketsCount ?? 0,
-          revenueCents: t.revenueCents ?? 0,
-          discrepancyCashCents: r ? r.discrepancyCashCents : null,
+          start: ws,
+          end: addDays(ws, 6),
+          ticketsCount: b.ticketsCount,
+          revenueCents: b.revenueCents,
+          discrepancyCashCents: b.submittedDays > 0 ? b.discrepancyCashCents : null,
           status,
         }
       })
     }
 
     const makeMonthSeries = () => {
-      const tickets = db
-        .prepare(
-          `
-          SELECT
-            substr(day_date, 1, 7) AS ym,
-            COUNT(*) AS ticketsCount,
-            IFNULL(SUM(price_cents), 0) AS revenueCents
-          FROM tickets
-          WHERE day_date IN (${placeholders}) AND voided_at IS NULL
-          GROUP BY ym
-          ORDER BY ym ASC
-        `,
-        )
-        .all(...days)
-      const ticketMap = new Map(tickets.map((r) => [r.ym, r]))
-
-      const recs = db
-        .prepare(
-          `
-          SELECT
-            substr(day_date, 1, 7) AS ym,
-            IFNULL(SUM(discrepancy_cash_cents), 0) AS discrepancyCashCents,
-            COUNT(*) AS submittedDays,
-            SUM(CASE WHEN owner_confirmed_at IS NOT NULL THEN 1 ELSE 0 END) AS confirmedDays
-          FROM day_reconciliations
-          WHERE day_date IN (${placeholders})
-          GROUP BY ym
-        `,
-        )
-        .all(...days)
-      const recMap2 = new Map(recs.map((r) => [r.ym, r]))
-
-      const yms = [...new Set(days.map((d) => d.slice(0, 7)))].sort()
+      const bucket = new Map()
+      for (const d of days) {
+        const ym = d.slice(0, 7)
+        const t = ticketsByDay.get(d) ?? { ticketsCount: 0, revenueCents: 0 }
+        const r = recMap.get(d) ?? null
+        const cur = bucket.get(ym) ?? { ticketsCount: 0, revenueCents: 0, discrepancyCashCents: 0, submittedDays: 0, confirmedDays: 0, start: `${ym}-01`, end: d }
+        cur.ticketsCount += t.ticketsCount ?? 0
+        cur.revenueCents += t.revenueCents ?? 0
+        cur.end = d
+        if (r?.cashierSubmittedAt) cur.submittedDays += 1
+        if (r?.ownerConfirmedAt) cur.confirmedDays += 1
+        if (r?.discrepancyCashCents !== null && r?.discrepancyCashCents !== undefined) cur.discrepancyCashCents += r.discrepancyCashCents
+        bucket.set(ym, cur)
+      }
+      const yms = [...bucket.keys()].sort()
       return yms.map((ym) => {
-        const t = ticketMap.get(ym) ?? { ticketsCount: 0, revenueCents: 0 }
-        const r = recMap2.get(ym) ?? null
-        const start2 = `${ym}-01`
-        let end2 = `${ym}-28`
-        for (let i = 31; i >= 28; i -= 1) {
-          const cand = `${ym}-${String(i).padStart(2, '0')}`
-          if (cand >= start && cand <= end) {
-            end2 = cand
-            break
-          }
-        }
+        const b = bucket.get(ym)
         let status = 'pending'
-        if (r?.submittedDays > 0) status = 'cashier_submitted'
-        if (r?.confirmedDays === r?.submittedDays && r?.submittedDays > 0) status = 'confirmed'
+        if (b.submittedDays > 0) status = 'cashier_submitted'
+        if (b.confirmedDays === b.submittedDays && b.submittedDays > 0) status = 'confirmed'
         if (status === 'pending') pendingDays += 1
         if (status === 'cashier_submitted') cashierSubmittedDays += 1
         if (status === 'confirmed') confirmedDays += 1
         return {
           key: ym,
           label: ym,
-          start: start2,
-          end: end2,
-          ticketsCount: t.ticketsCount ?? 0,
-          revenueCents: t.revenueCents ?? 0,
-          discrepancyCashCents: r ? r.discrepancyCashCents : null,
+          start: b.start,
+          end: b.end,
+          ticketsCount: b.ticketsCount,
+          revenueCents: b.revenueCents,
+          discrepancyCashCents: b.submittedDays > 0 ? b.discrepancyCashCents : null,
           status,
         }
       })
     }
 
-    const series =
-      group === 'week' ? makeWeekSeries() : group === 'month' ? makeMonthSeries() : makeDaySeries()
+    const series = group === 'week' ? makeWeekSeries() : group === 'month' ? makeMonthSeries() : makeDaySeries()
 
     const totalTickets = totals.ticketsCount ?? 0
     const totalRevenueCents = totals.totalRevenueCents ?? 0
@@ -448,10 +387,10 @@ export function attachOwnerRoutes(app) {
     const expectedCashCents = cashTotals.expectedCashCents ?? 0
     const declaredCashCents = cashTotals.declaredCashCents ?? 0
     const discrepancyCashCents = cashTotals.discrepancyCashCents ?? 0
-    const leakagePct = expectedCashCents > 0 ? (discrepancyCashCents / expectedCashCents) * 100 : 0
+    const leakagePct = expectedCashCents > 0 ? Math.round((Math.abs(discrepancyCashCents) / expectedCashCents) * 1000) / 10 : 0
     const repeatPlatesCount = repeat.repeatPlatesCount ?? 0
     const uniquePlatesCount = totals.uniquePlatesCount ?? 0
-    const repeatRatePct = uniquePlatesCount > 0 ? (repeatPlatesCount / uniquePlatesCount) * 100 : 0
+    const repeatRatePct = uniquePlatesCount > 0 ? Math.round((repeatPlatesCount / uniquePlatesCount) * 1000) / 10 : 0
 
     res.json({
       range: { start, end, days: days.length },
@@ -485,90 +424,87 @@ export function attachOwnerRoutes(app) {
     })
   })
 
-  app.get('/api/owner/day/:dayDate', requireRole('owner'), (req, res) => {
+  app.get('/api/owner/day/:dayDate', requireRole('owner'), async (req, res) => {
     const schema = z.object({ dayDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })
     const parsed = schema.safeParse(req.params)
     if (!parsed.success) return res.status(400).json({ error: 'invalid_date' })
 
     const dayDate = parsed.data.dayDate
-    const tickets = db
-      .prepare(
-        `
+    const tickets = await query(
+      `
         SELECT
-          t.ticket_number AS ticketNumber,
-          t.day_date AS dayDate,
+          t.ticket_number AS "ticketNumber",
+          t.day_date AS "dayDate",
           t.plate AS plate,
-          t.vehicle_type_id AS vehicleTypeId,
-          t.vehicle_type_name AS vehicleTypeName,
-          t.service_type_id AS serviceTypeId,
-          t.service_type_name AS serviceTypeName,
-          t.base_price_cents AS basePriceCents,
-          t.discount_cents AS discountCents,
-          t.discount_reason AS discountReason,
-          t.override_note AS overrideNote,
-          t.price_cents AS priceCents,
-          t.price_overridden AS priceOverridden,
-          t.payment_method AS paymentMethod,
-          t.created_at AS createdAt
+          t.vehicle_type_id AS "vehicleTypeId",
+          t.vehicle_type_name AS "vehicleTypeName",
+          t.service_type_id AS "serviceTypeId",
+          t.service_type_name AS "serviceTypeName",
+          t.base_price_cents AS "basePriceCents",
+          t.discount_cents AS "discountCents",
+          t.discount_reason AS "discountReason",
+          t.override_note AS "overrideNote",
+          t.price_cents AS "priceCents",
+          t.price_overridden AS "priceOverridden",
+          t.payment_method AS "paymentMethod",
+          t.created_at AS "createdAt"
         FROM tickets t
-        WHERE t.day_date = ? AND t.voided_at IS NULL
+        WHERE t.day_date = $1 AND t.voided_at IS NULL
         ORDER BY t.ticket_number DESC
       `,
-      )
-      .all(dayDate)
+      [dayDate],
+    )
 
-    const reconciliation = db
-      .prepare(
-        `
+    const reconciliation = await query(
+      `
         SELECT
-          day_date AS dayDate,
-          tickets_count AS ticketsCount,
-          expected_revenue_cents AS expectedRevenueCents,
-          expected_cash_cents AS expectedCashCents,
-          declared_cash_cents AS declaredCashCents,
-          discrepancy_cash_cents AS discrepancyCashCents,
-          cashier_submitted_at AS cashierSubmittedAt,
-          owner_confirmed_at AS ownerConfirmedAt,
-          owner_note AS ownerNote
+          day_date AS "dayDate",
+          tickets_count AS "ticketsCount",
+          expected_revenue_cents AS "expectedRevenueCents",
+          expected_cash_cents AS "expectedCashCents",
+          declared_cash_cents AS "declaredCashCents",
+          discrepancy_cash_cents AS "discrepancyCashCents",
+          cashier_submitted_at AS "cashierSubmittedAt",
+          owner_confirmed_at AS "ownerConfirmedAt",
+          owner_note AS "ownerNote"
         FROM day_reconciliations
-        WHERE day_date = ?
+        WHERE day_date = $1
       `,
-      )
-      .get(dayDate)
+      [dayDate],
+    )
 
-    res.json({ dayDate, tickets, reconciliation: reconciliation ?? null })
+    res.json({ dayDate, tickets: tickets.rows, reconciliation: reconciliation.rows[0] ?? null })
   })
 
-  app.get('/api/owner/cash-audit/:dayDate', requireRole('owner'), (req, res) => {
+  app.get('/api/owner/cash-audit/:dayDate', requireRole('owner'), async (req, res) => {
     const schema = z.object({ dayDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })
     const parsed = schema.safeParse(req.params)
     if (!parsed.success) return res.status(400).json({ error: 'invalid_date' })
     const dayDate = parsed.data.dayDate
 
-    const rows = db
-      .prepare(
-        `
+    const rows = await query(
+      `
         SELECT
-          t.ticket_number AS ticketNumber,
+          t.ticket_number AS "ticketNumber",
           t.plate AS plate,
-          t.payment_method AS paymentMethod,
-          t.base_price_cents AS basePriceCents,
-          t.discount_cents AS discountCents,
-          t.discount_reason AS discountReason,
-          t.override_note AS overrideNote,
-          t.price_cents AS priceCents,
-          t.price_overridden AS priceOverridden,
-          t.voided_at AS voidedAt,
-          t.void_reason AS voidReason,
-          t.created_at AS createdAt
+          t.payment_method AS "paymentMethod",
+          t.base_price_cents AS "basePriceCents",
+          t.discount_cents AS "discountCents",
+          t.discount_reason AS "discountReason",
+          t.override_note AS "overrideNote",
+          t.price_cents AS "priceCents",
+          t.price_overridden AS "priceOverridden",
+          t.voided_at AS "voidedAt",
+          t.void_reason AS "voidReason",
+          t.created_at AS "createdAt"
         FROM tickets t
-        WHERE t.day_date = ?
+        WHERE t.day_date = $1
         ORDER BY t.ticket_number ASC
       `,
-      )
-      .all(dayDate)
+      [dayDate],
+    )
 
-    const active = rows.filter((r) => !r.voidedAt)
+    const active = rows.rows.filter((r) => !r.voidedAt)
     let expectedRevenueCents = 0
     let expectedCashCents = 0
     for (const r of active) {
@@ -576,7 +512,7 @@ export function attachOwnerRoutes(app) {
       if (r.paymentMethod === 'cash') expectedCashCents += r.priceCents
     }
 
-    const ticketNumbers = rows.map((r) => r.ticketNumber)
+    const ticketNumbers = rows.rows.map((r) => r.ticketNumber)
     const minTicket = ticketNumbers.length ? Math.min(...ticketNumbers) : null
     const maxTicket = ticketNumbers.length ? Math.max(...ticketNumbers) : null
     const set = new Set(ticketNumbers)
@@ -588,7 +524,7 @@ export function attachOwnerRoutes(app) {
       }
     }
 
-    const flagged = rows
+    const flagged = rows.rows
       .filter((r) => r.priceOverridden || (r.discountCents ?? 0) > 0 || r.voidedAt)
       .slice(0, 200)
 
@@ -601,9 +537,9 @@ export function attachOwnerRoutes(app) {
         minTicketNumber: minTicket,
         maxTicketNumber: maxTicket,
         missingTicketNumbers: missing,
-        overridesCount: rows.filter((r) => r.priceOverridden).length,
-        discountsCount: rows.filter((r) => (r.discountCents ?? 0) > 0).length,
-        voidedCount: rows.filter((r) => r.voidedAt).length,
+        overridesCount: rows.rows.filter((r) => r.priceOverridden).length,
+        discountsCount: rows.rows.filter((r) => (r.discountCents ?? 0) > 0).length,
+        voidedCount: rows.rows.filter((r) => r.voidedAt).length,
       },
       flaggedTickets: flagged,
     })

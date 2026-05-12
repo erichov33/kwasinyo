@@ -1,26 +1,24 @@
 import { z } from 'zod'
-import { db } from '../db.js'
+import { query, withTx } from '../db.js'
 import { requireAuth, requireRole } from '../auth.js'
 import { getLocalDayDate } from '../util.js'
 
-function getBoardPricing(vehicleTypeId, serviceTypeId) {
-  const row = db
-    .prepare(
-      `
+async function getBoardPricing(vehicleTypeId, serviceTypeId) {
+  const r = await query(
+    `
       SELECT
-        pm.price_cents AS priceCents,
-        vt.name AS vehicleTypeName,
-        st.name AS serviceTypeName
+        pm.price_cents AS "priceCents",
+        vt.name AS "vehicleTypeName",
+        st.name AS "serviceTypeName"
       FROM price_matrix pm
       JOIN vehicle_types vt ON vt.id = pm.vehicle_type_id
       JOIN service_types st ON st.id = pm.service_type_id
-      WHERE pm.vehicle_type_id = ? AND pm.service_type_id = ?
+      WHERE pm.vehicle_type_id = $1 AND pm.service_type_id = $2
         AND vt.active = 1 AND st.active = 1
     `,
-    )
-    .get(vehicleTypeId, serviceTypeId)
-  if (!row) return null
-  return row
+    [vehicleTypeId, serviceTypeId],
+  )
+  return r.rows[0] ?? null
 }
 
 function formatTicketNumber(n) {
@@ -28,10 +26,10 @@ function formatTicketNumber(n) {
 }
 
 export function attachTicketRoutes(app) {
-  app.post('/api/tickets', requireRole('cashier'), (req, res) => {
+  app.post('/api/tickets', requireRole('cashier'), async (req, res) => {
     const dayDate = getLocalDayDate()
-    const locked = db.prepare('SELECT 1 FROM day_reconciliations WHERE day_date = ?').get(dayDate)
-    if (locked) return res.status(409).json({ error: 'day_locked' })
+    const locked = await query('SELECT 1 FROM day_reconciliations WHERE day_date = $1 LIMIT 1', [dayDate])
+    if (locked.rows.length) return res.status(409).json({ error: 'day_locked' })
 
     const schema = z.object({
       plate: z.string().trim().min(1).max(16),
@@ -48,7 +46,7 @@ export function attachTicketRoutes(app) {
     if (!parsed.success) return res.status(400).json({ error: 'invalid_input' })
 
     const { plate, vehicleTypeId, serviceTypeId, paymentMethod, priceCents, override } = parsed.data
-    const pricing = getBoardPricing(vehicleTypeId, serviceTypeId)
+    const pricing = await getBoardPricing(vehicleTypeId, serviceTypeId)
     if (!pricing) return res.status(409).json({ error: 'missing_price' })
     const basePriceCents = pricing.priceCents
 
@@ -64,22 +62,16 @@ export function attachTicketRoutes(app) {
     if (!override && priceCents !== expectedFinal) return res.status(409).json({ error: 'price_mismatch' })
 
     const now = new Date().toISOString()
-
-    const insert = db.prepare(
-      `
-      INSERT INTO tickets
-        (ticket_number, day_date, plate, vehicle_type_id, vehicle_type_name, service_type_id, service_type_name, base_price_cents, price_cents, price_overridden, discount_cents, discount_reason, override_note, payment_method, cashier_user_id, created_at)
-      VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    )
-
-    const ticketNumber = Number(
-      db.transaction(() => {
-        const temp = db.prepare('SELECT IFNULL(MAX(ticket_number), 0) + 1 AS next FROM tickets').get()
-        const next = temp.next
-        const info = insert.run(
-          next,
+    const inserted = await withTx(async (client) => {
+      const ins = await client.query(
+        `
+        INSERT INTO tickets
+          (day_date, plate, vehicle_type_id, vehicle_type_name, service_type_id, service_type_name, base_price_cents, price_cents, price_overridden, discount_cents, discount_reason, override_note, payment_method, cashier_user_id, created_at)
+        VALUES
+          ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+        RETURNING id, ticket_number
+      `,
+        [
           dayDate,
           plate.toUpperCase(),
           vehicleTypeId,
@@ -95,9 +87,13 @@ export function attachTicketRoutes(app) {
           paymentMethod,
           req.user.id,
           now,
-        )
-        const ticketId = Number(info.lastInsertRowid)
-        db.prepare('INSERT INTO ticket_audits (ticket_id, action, actor_user_id, payload_json, created_at) VALUES (?, ?, ?, ?, ?)').run(
+        ],
+      )
+      const ticketId = Number(ins.rows[0].id)
+      const ticketNumber = Number(ins.rows[0].ticket_number)
+      await client.query(
+        'INSERT INTO ticket_audits (ticket_id, action, actor_user_id, payload_json, created_at) VALUES ($1, $2, $3, $4, $5)',
+        [
           ticketId,
           'create',
           req.user.id,
@@ -114,16 +110,16 @@ export function attachTicketRoutes(app) {
             paymentMethod,
           }),
           now,
-        )
-        return next
-      })(),
-    )
+        ],
+      )
+      return { ticketId, ticketNumber }
+    })
 
     res.json({
       ok: true,
       ticket: {
-        ticketNumber,
-        ticketLabel: formatTicketNumber(ticketNumber),
+        ticketNumber: inserted.ticketNumber,
+        ticketLabel: formatTicketNumber(inserted.ticketNumber),
         dayDate,
         plate: plate.toUpperCase(),
         vehicleTypeId,
@@ -140,101 +136,99 @@ export function attachTicketRoutes(app) {
     })
   })
 
-  app.get('/api/tickets/today', requireAuth, (req, res) => {
+  app.get('/api/tickets/today', requireAuth, async (req, res) => {
     const dayDate = getLocalDayDate()
-    const rows = db
-      .prepare(
-        `
+    const rows = await query(
+      `
         SELECT
-          t.ticket_number AS ticketNumber,
-          t.day_date AS dayDate,
+          t.ticket_number AS "ticketNumber",
+          t.day_date AS "dayDate",
           t.plate AS plate,
-          t.vehicle_type_id AS vehicleTypeId,
-          t.vehicle_type_name AS vehicleTypeName,
-          t.service_type_id AS serviceTypeId,
-          t.service_type_name AS serviceTypeName,
-          t.base_price_cents AS basePriceCents,
-          t.discount_cents AS discountCents,
-          t.discount_reason AS discountReason,
-          t.override_note AS overrideNote,
-          t.price_cents AS priceCents,
-          t.price_overridden AS priceOverridden,
-          t.payment_method AS paymentMethod,
-          t.created_at AS createdAt
+          t.vehicle_type_id AS "vehicleTypeId",
+          t.vehicle_type_name AS "vehicleTypeName",
+          t.service_type_id AS "serviceTypeId",
+          t.service_type_name AS "serviceTypeName",
+          t.base_price_cents AS "basePriceCents",
+          t.discount_cents AS "discountCents",
+          t.discount_reason AS "discountReason",
+          t.override_note AS "overrideNote",
+          t.price_cents AS "priceCents",
+          t.price_overridden AS "priceOverridden",
+          t.payment_method AS "paymentMethod",
+          t.created_at AS "createdAt"
         FROM tickets t
-        WHERE t.day_date = ? AND t.voided_at IS NULL
+        WHERE t.day_date = $1 AND t.voided_at IS NULL
         ORDER BY t.ticket_number DESC
       `,
-      )
-      .all(dayDate)
+      [dayDate],
+    )
 
-    res.json({ dayDate, tickets: rows })
+    res.json({ dayDate, tickets: rows.rows })
   })
 
-  app.get('/api/tickets/by-date/:dayDate', requireRole('owner'), (req, res) => {
+  app.get('/api/tickets/by-date/:dayDate', requireRole('owner'), async (req, res) => {
     const schema = z.object({ dayDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })
     const parsed = schema.safeParse(req.params)
     if (!parsed.success) return res.status(400).json({ error: 'invalid_date' })
 
-    const rows = db
-      .prepare(
-        `
+    const rows = await query(
+      `
         SELECT
-          t.ticket_number AS ticketNumber,
-          t.day_date AS dayDate,
+          t.ticket_number AS "ticketNumber",
+          t.day_date AS "dayDate",
           t.plate AS plate,
-          t.vehicle_type_id AS vehicleTypeId,
-          t.vehicle_type_name AS vehicleTypeName,
-          t.service_type_id AS serviceTypeId,
-          t.service_type_name AS serviceTypeName,
-          t.base_price_cents AS basePriceCents,
-          t.discount_cents AS discountCents,
-          t.discount_reason AS discountReason,
-          t.override_note AS overrideNote,
-          t.price_cents AS priceCents,
-          t.price_overridden AS priceOverridden,
-          t.payment_method AS paymentMethod,
-          t.created_at AS createdAt
+          t.vehicle_type_id AS "vehicleTypeId",
+          t.vehicle_type_name AS "vehicleTypeName",
+          t.service_type_id AS "serviceTypeId",
+          t.service_type_name AS "serviceTypeName",
+          t.base_price_cents AS "basePriceCents",
+          t.discount_cents AS "discountCents",
+          t.discount_reason AS "discountReason",
+          t.override_note AS "overrideNote",
+          t.price_cents AS "priceCents",
+          t.price_overridden AS "priceOverridden",
+          t.payment_method AS "paymentMethod",
+          t.created_at AS "createdAt"
         FROM tickets t
-        WHERE t.day_date = ? AND t.voided_at IS NULL
+        WHERE t.day_date = $1 AND t.voided_at IS NULL
         ORDER BY t.ticket_number DESC
       `,
-      )
-      .all(parsed.data.dayDate)
+      [parsed.data.dayDate],
+    )
 
-    res.json({ dayDate: parsed.data.dayDate, tickets: rows })
+    res.json({ dayDate: parsed.data.dayDate, tickets: rows.rows })
   })
 
-  app.get('/api/tickets/:ticketNumber/receipt', requireAuth, (req, res) => {
+  app.get('/api/tickets/:ticketNumber/receipt', requireAuth, async (req, res) => {
     const ticketNumber = Number(req.params.ticketNumber)
     if (!Number.isFinite(ticketNumber)) return res.status(400).json({ error: 'invalid_ticket_number' })
 
-    const row = db
-      .prepare(
-        `
+    const r = await query(
+      `
         SELECT
-          t.ticket_number AS ticketNumber,
-          t.day_date AS dayDate,
+          t.ticket_number AS "ticketNumber",
+          t.day_date AS "dayDate",
           t.plate AS plate,
-          t.vehicle_type_name AS vehicleTypeName,
-          t.service_type_name AS serviceTypeName,
-          t.base_price_cents AS basePriceCents,
-          t.discount_cents AS discountCents,
-          t.discount_reason AS discountReason,
-          t.override_note AS overrideNote,
-          t.price_cents AS priceCents,
-          t.price_overridden AS priceOverridden,
-          t.payment_method AS paymentMethod,
-          t.created_at AS createdAt,
-          u.username AS cashierUsername,
-          t.voided_at AS voidedAt,
-          t.void_reason AS voidReason
+          t.vehicle_type_name AS "vehicleTypeName",
+          t.service_type_name AS "serviceTypeName",
+          t.base_price_cents AS "basePriceCents",
+          t.discount_cents AS "discountCents",
+          t.discount_reason AS "discountReason",
+          t.override_note AS "overrideNote",
+          t.price_cents AS "priceCents",
+          t.price_overridden AS "priceOverridden",
+          t.payment_method AS "paymentMethod",
+          t.created_at AS "createdAt",
+          u.username AS "cashierUsername",
+          t.voided_at AS "voidedAt",
+          t.void_reason AS "voidReason"
         FROM tickets t
         JOIN users u ON u.id = t.cashier_user_id
-        WHERE t.ticket_number = ?
+        WHERE t.ticket_number = $1
       `,
-      )
-      .get(ticketNumber)
+      [ticketNumber],
+    )
+    const row = r.rows[0] ?? null
     if (!row) return res.status(404).json({ error: 'not_found' })
 
     res.json({
@@ -246,38 +240,37 @@ export function attachTicketRoutes(app) {
     })
   })
 
-  app.post('/api/owner/tickets/:ticketNumber/void', requireRole('owner'), (req, res) => {
+  app.post('/api/owner/tickets/:ticketNumber/void', requireRole('owner'), async (req, res) => {
     const ticketNumber = Number(req.params.ticketNumber)
     if (!Number.isFinite(ticketNumber)) return res.status(400).json({ error: 'invalid_ticket_number' })
     const schema = z.object({ reason: z.string().trim().min(1).max(200) }).strict()
     const parsed = schema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ error: 'invalid_input' })
 
-    const t = db
-      .prepare('SELECT id, day_date AS dayDate, voided_at AS voidedAt FROM tickets WHERE ticket_number = ?')
-      .get(ticketNumber)
+    const tRes = await query(
+      'SELECT id, day_date AS "dayDate", voided_at AS "voidedAt" FROM tickets WHERE ticket_number = $1',
+      [ticketNumber],
+    )
+    const t = tRes.rows[0] ?? null
     if (!t) return res.status(404).json({ error: 'not_found' })
     if (t.voidedAt) return res.status(409).json({ error: 'already_voided' })
 
-    const locked = db.prepare('SELECT 1 FROM day_reconciliations WHERE day_date = ?').get(t.dayDate)
-    if (locked) return res.status(409).json({ error: 'day_locked' })
+    const locked = await query('SELECT 1 FROM day_reconciliations WHERE day_date = $1 LIMIT 1', [t.dayDate])
+    if (locked.rows.length) return res.status(409).json({ error: 'day_locked' })
 
     const now = new Date().toISOString()
-    db.transaction(() => {
-      db.prepare('UPDATE tickets SET voided_at = ?, void_reason = ?, voided_by_user_id = ? WHERE id = ?').run(
+    await withTx(async (client) => {
+      await client.query('UPDATE tickets SET voided_at = $1, void_reason = $2, voided_by_user_id = $3 WHERE id = $4', [
         now,
         parsed.data.reason,
         req.user.id,
         t.id,
+      ])
+      await client.query(
+        'INSERT INTO ticket_audits (ticket_id, action, actor_user_id, payload_json, created_at) VALUES ($1, $2, $3, $4, $5)',
+        [t.id, 'void', req.user.id, JSON.stringify({ ticketNumber, reason: parsed.data.reason }), now],
       )
-      db.prepare('INSERT INTO ticket_audits (ticket_id, action, actor_user_id, payload_json, created_at) VALUES (?, ?, ?, ?, ?)').run(
-        t.id,
-        'void',
-        req.user.id,
-        JSON.stringify({ ticketNumber, reason: parsed.data.reason }),
-        now,
-      )
-    })()
+    })
 
     res.json({ ok: true })
   })

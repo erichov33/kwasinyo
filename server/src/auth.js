@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
-import { db, isBootstrapped } from './db.js'
+import { isBootstrapped, query, withTx } from './db.js'
 
 export function getSessionUser(req) {
   const { user } = req.session ?? {}
@@ -29,12 +29,12 @@ export function requireRole(role) {
 }
 
 export function attachAuthRoutes(app) {
-  app.get('/api/auth/bootstrap-status', (_req, res) => {
-    res.json({ bootstrapped: isBootstrapped() })
+  app.get('/api/auth/bootstrap-status', async (_req, res) => {
+    res.json({ bootstrapped: await isBootstrapped() })
   })
 
-  app.post('/api/auth/bootstrap', (req, res) => {
-    if (isBootstrapped()) return res.status(409).json({ error: 'already_bootstrapped' })
+  app.post('/api/auth/bootstrap', async (req, res) => {
+    if (await isBootstrapped()) return res.status(409).json({ error: 'already_bootstrapped' })
 
     const schema = z.object({
       ownerUsername: z.string().trim().min(1).max(32),
@@ -48,25 +48,34 @@ export function attachAuthRoutes(app) {
     const { ownerUsername, ownerPassword, cashierUsername, cashierPassword } = parsed.data
 
     const now = new Date().toISOString()
-    const insertUser = db.prepare(
-      'INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)',
-    )
-
     try {
-      db.transaction(() => {
+      await withTx(async (client) => {
         const ownerHash = bcrypt.hashSync(ownerPassword, 12)
         const cashierHash = bcrypt.hashSync(cashierPassword, 12)
-        insertUser.run(ownerUsername, ownerHash, 'owner', now)
-        insertUser.run(cashierUsername, cashierHash, 'cashier', now)
-      })()
-    } catch {
+        await client.query('INSERT INTO users (username, password_hash, role, created_at) VALUES ($1, $2, $3, $4)', [
+          ownerUsername,
+          ownerHash,
+          'owner',
+          now,
+        ])
+        await client.query('INSERT INTO users (username, password_hash, role, created_at) VALUES ($1, $2, $3, $4)', [
+          cashierUsername,
+          cashierHash,
+          'cashier',
+          now,
+        ])
+      })
+    } catch (e) {
+      if (e && typeof e === 'object' && e.code === '23505') {
+        return res.status(409).json({ error: 'username_conflict' })
+      }
       return res.status(409).json({ error: 'username_conflict' })
     }
 
     res.json({ ok: true })
   })
 
-  app.post('/api/auth/login', (req, res) => {
+  app.post('/api/auth/login', async (req, res) => {
     const schema = z.object({
       username: z.string().trim().min(1).max(32),
       password: z.string().min(1).max(128),
@@ -75,15 +84,14 @@ export function attachAuthRoutes(app) {
     if (!parsed.success) return res.status(400).json({ error: 'invalid_input' })
 
     const { username, password } = parsed.data
-    const row = db
-      .prepare('SELECT id, username, password_hash, role FROM users WHERE username = ?')
-      .get(username)
+    const r = await query('SELECT id, username, password_hash, role FROM users WHERE username = $1', [username])
+    const row = r.rows[0] ?? null
 
     if (!row) return res.status(401).json({ error: 'invalid_credentials' })
     const ok = bcrypt.compareSync(password, row.password_hash)
     if (!ok) return res.status(401).json({ error: 'invalid_credentials' })
 
-    req.session.user = { id: row.id, username: row.username, role: row.role }
+    req.session.user = { id: Number(row.id), username: row.username, role: row.role }
     res.json({ ok: true, user: req.session.user })
   })
 
@@ -98,4 +106,3 @@ export function attachAuthRoutes(app) {
     res.json({ user })
   })
 }
-

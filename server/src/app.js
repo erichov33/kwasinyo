@@ -9,8 +9,8 @@ import { attachCloseoutRoutes } from './routes/closeout.js'
 import { attachOwnerRoutes } from './routes/owner.js'
 import { attachCustomerRoutes } from './routes/customers.js'
 
-export function createApp() {
-  initDb()
+export async function createApp() {
+  await initDb()
 
   const app = express()
   app.disable('x-powered-by')

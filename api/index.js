@@ -1,8 +1,8 @@
 import { createApp } from '../server/src/app.js'
 
-const app = createApp()
+const appPromise = createApp()
 
-export default function handler(req, res) {
+export default async function handler(req, res) {
+  const app = await appPromise
   return app(req, res)
 }
-
