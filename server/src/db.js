@@ -329,6 +329,37 @@ const MIGRATIONS = [
       EXECUTE FUNCTION set_updated_at();
     `,
   },
+  {
+    id: '004_align_price_matrix_updated_at_trigger',
+    sql: `
+      ALTER TABLE price_matrix
+        ALTER COLUMN updated_at SET DEFAULT now();
+
+      CREATE OR REPLACE FUNCTION public.set_updated_at()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        NEW.updated_at := now();
+        RETURN NEW;
+      END;
+      $$;
+
+      DROP TRIGGER IF EXISTS trg_price_matrix_updated_at ON price_matrix;
+      DROP TRIGGER IF EXISTS trg_price_matrix_set_updated_at ON price_matrix;
+
+      CREATE TRIGGER trg_price_matrix_set_updated_at
+      BEFORE UPDATE ON price_matrix
+      FOR EACH ROW
+      EXECUTE FUNCTION public.set_updated_at();
+
+      DROP TRIGGER IF EXISTS trg_customers_updated_at ON customers;
+      CREATE TRIGGER trg_customers_updated_at
+      BEFORE UPDATE ON customers
+      FOR EACH ROW
+      EXECUTE FUNCTION public.set_updated_at();
+    `,
+  },
 ]
 
 async function applyMigrations() {
