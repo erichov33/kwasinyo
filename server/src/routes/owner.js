@@ -191,6 +191,34 @@ export function attachOwnerRoutes(app) {
       )
       .get(...days)
 
+    const cashTotals = db
+      .prepare(
+        `
+        SELECT
+          IFNULL(SUM(expected_cash_cents), 0) AS expectedCashCents,
+          IFNULL(SUM(declared_cash_cents), 0) AS declaredCashCents,
+          IFNULL(SUM(discrepancy_cash_cents), 0) AS discrepancyCashCents
+        FROM day_reconciliations
+        WHERE day_date IN (${placeholders})
+      `,
+      )
+      .get(...days)
+
+    const repeat = db
+      .prepare(
+        `
+        SELECT COUNT(*) AS repeatPlatesCount
+        FROM (
+          SELECT plate
+          FROM tickets
+          WHERE day_date IN (${placeholders})
+          GROUP BY plate
+          HAVING COUNT(*) >= 2
+        ) rp
+      `,
+      )
+      .get(...days)
+
     const byDay = db
       .prepare(
         `
@@ -202,6 +230,39 @@ export function attachOwnerRoutes(app) {
       )
       .all(...days)
     const byDayMap = new Map(byDay.map((r) => [r.dayDate, r]))
+
+    const serviceRows = db
+      .prepare(
+        `
+        SELECT service_type_name AS serviceTypeName, COUNT(*) AS ticketsCount, IFNULL(SUM(price_cents), 0) AS revenueCents
+        FROM tickets
+        WHERE day_date IN (${placeholders})
+        GROUP BY service_type_name
+        ORDER BY revenueCents DESC, ticketsCount DESC
+      `,
+      )
+      .all(...days)
+
+    const hourRows = db
+      .prepare(
+        `
+        SELECT substr(created_at, 12, 2) AS hour, COUNT(*) AS ticketsCount, IFNULL(SUM(price_cents), 0) AS revenueCents
+        FROM tickets
+        WHERE day_date IN (${placeholders})
+        GROUP BY hour
+        ORDER BY hour ASC
+      `,
+      )
+      .all(...days)
+    const hourMap = new Map(hourRows.map((r) => [Number(r.hour), r]))
+    const peakHours = Array.from({ length: 24 }).map((_, h) => {
+      const r = hourMap.get(h) ?? null
+      return {
+        hour: h,
+        ticketsCount: r?.ticketsCount ?? 0,
+        revenueCents: r?.revenueCents ?? 0,
+      }
+    })
 
     const paymentRows = db
       .prepare(
@@ -251,6 +312,13 @@ export function attachOwnerRoutes(app) {
     const totalTickets = totals.ticketsCount ?? 0
     const totalRevenueCents = totals.totalRevenueCents ?? 0
     const avgTicketCents = totalTickets > 0 ? Math.round(totalRevenueCents / totalTickets) : 0
+    const expectedCashCents = cashTotals.expectedCashCents ?? 0
+    const declaredCashCents = cashTotals.declaredCashCents ?? 0
+    const discrepancyCashCents = cashTotals.discrepancyCashCents ?? 0
+    const leakagePct = expectedCashCents > 0 ? (discrepancyCashCents / expectedCashCents) * 100 : 0
+    const repeatPlatesCount = repeat.repeatPlatesCount ?? 0
+    const uniquePlatesCount = totals.uniquePlatesCount ?? 0
+    const repeatRatePct = uniquePlatesCount > 0 ? (repeatPlatesCount / uniquePlatesCount) * 100 : 0
 
     res.json({
       range: { start, end, days: days.length },
@@ -259,7 +327,19 @@ export function attachOwnerRoutes(app) {
         totalTickets,
         totalRevenueCents,
         avgTicketCents,
-        uniquePlatesCount: totals.uniquePlatesCount ?? 0,
+        uniquePlatesCount,
+      },
+      financial: {
+        expectedCashCents,
+        declaredCashCents,
+        discrepancyCashCents,
+        leakagePct,
+      },
+      behavioral: {
+        repeatPlatesCount,
+        repeatRatePct,
+        peakHours,
+        preferredServices: serviceRows,
       },
       statusCounts: {
         pending: pendingDays,

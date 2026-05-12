@@ -21,6 +21,18 @@ type ReportsRes = {
     avgTicketCents: number
     uniquePlatesCount: number
   }
+  financial: {
+    expectedCashCents: number
+    declaredCashCents: number
+    discrepancyCashCents: number
+    leakagePct: number
+  }
+  behavioral: {
+    repeatPlatesCount: number
+    repeatRatePct: number
+    peakHours: Array<{ hour: number; ticketsCount: number; revenueCents: number }>
+    preferredServices: Array<{ serviceTypeName: string; ticketsCount: number; revenueCents: number }>
+  }
   statusCounts: {
     pending: number
     cashier_submitted: number
@@ -80,6 +92,21 @@ export function OwnerReports() {
     () => (data?.daily ?? []).map((r) => ({ label: r.dayDate, value: r.revenueCents })),
     [data],
   )
+
+  const peakHourPoints = useMemo(
+    () => (data?.behavioral.peakHours ?? []).map((h) => ({ label: String(h.hour).padStart(2, '0'), value: h.ticketsCount })),
+    [data],
+  )
+
+  const topServices = useMemo(() => {
+    const list = data?.behavioral.preferredServices ?? []
+    return list.slice(0, 6)
+  }, [data])
+
+  const maxServiceRevenue = useMemo(() => {
+    const list = topServices
+    return Math.max(1, ...list.map((s) => s.revenueCents))
+  }, [topServices])
 
   const maxStatus = useMemo(() => {
     const sc = data?.statusCounts
@@ -185,6 +212,27 @@ export function OwnerReports() {
           </div>
         ) : null}
 
+        {data ? (
+          <div className="statRow">
+            <div className="statCard">
+              <div className="statCard__label">Expected cash</div>
+              <div className="statCard__value">{formatMoneyCents(data.financial.expectedCashCents)}</div>
+            </div>
+            <div className="statCard">
+              <div className="statCard__label">Declared cash</div>
+              <div className="statCard__value">{formatMoneyCents(data.financial.declaredCashCents)}</div>
+            </div>
+            <div className="statCard">
+              <div className="statCard__label">Discrepancy</div>
+              <div className="statCard__value">{formatMoneyCents(data.financial.discrepancyCashCents)}</div>
+            </div>
+            <div className="statCard">
+              <div className="statCard__label">Leakage %</div>
+              <div className="statCard__value">{data.financial.expectedCashCents > 0 ? `${data.financial.leakagePct.toFixed(1)}%` : '—'}</div>
+            </div>
+          </div>
+        ) : null}
+
         <div className="dashGrid">
           <div className="card">
             <div className="row">
@@ -228,8 +276,44 @@ export function OwnerReports() {
             )}
           </div>
         </div>
+
+        <div className="dashGrid">
+          <div className="card">
+            <div className="row">
+              <h2 className="h2">Peak Hours</h2>
+              <div className="muted">Tickets per hour (server time)</div>
+            </div>
+            <BarChart points={peakHourPoints} />
+          </div>
+
+          <div className="card">
+            <div className="row">
+              <h2 className="h2">Preferred Services</h2>
+              <div className="muted">Top services by revenue</div>
+            </div>
+            {topServices.length ? (
+              <div className="miniBars">
+                {topServices.map((s) => (
+                  <div key={s.serviceTypeName} className="miniRow">
+                    <div className="miniRow__label">{s.serviceTypeName}</div>
+                    <div className="miniRow__bar">
+                      <div className="miniRow__fill" style={{ width: `${(s.revenueCents / maxServiceRevenue) * 100}%` }} />
+                    </div>
+                    <div className="miniRow__value">{formatMoneyCents(s.revenueCents)}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="muted">No data.</div>
+            )}
+            {data ? (
+              <div className="metaLine muted">
+                Repeat customers (by plate): {data.behavioral.repeatPlatesCount} ({data.behavioral.repeatRatePct.toFixed(1)}%)
+              </div>
+            ) : null}
+          </div>
+        </div>
       </div>
     </AppShell>
   )
 }
-
