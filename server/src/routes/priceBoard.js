@@ -162,15 +162,14 @@ export function attachPriceBoardRoutes(app) {
     const exists2 = await query('SELECT 1 FROM service_types WHERE id = $1 AND active = 1', [serviceTypeId])
     if (exists2.rows.length === 0) return res.status(404).json({ error: 'service_type_not_found' })
 
-    const now = new Date().toISOString()
     await query(
       `
       INSERT INTO price_matrix (vehicle_type_id, service_type_id, price_cents, updated_at)
-      VALUES ($1, $2, $3, $4)
+      VALUES ($1, $2, $3, now())
       ON CONFLICT(vehicle_type_id, service_type_id)
-      DO UPDATE SET price_cents = excluded.price_cents, updated_at = excluded.updated_at
+      DO UPDATE SET price_cents = excluded.price_cents, updated_at = now()
     `,
-      [vehicleTypeId, serviceTypeId, priceCents, now],
+      [vehicleTypeId, serviceTypeId, priceCents],
     )
 
     res.json({ ok: true })

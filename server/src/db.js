@@ -318,6 +318,15 @@ const MIGRATIONS = [
       BEFORE UPDATE ON customers
       FOR EACH ROW
       EXECUTE FUNCTION set_updated_at();
+
+      ALTER TABLE price_matrix
+        ALTER COLUMN updated_at SET DEFAULT now();
+
+      DROP TRIGGER IF EXISTS trg_price_matrix_updated_at ON price_matrix;
+      CREATE TRIGGER trg_price_matrix_updated_at
+      BEFORE INSERT OR UPDATE ON price_matrix
+      FOR EACH ROW
+      EXECUTE FUNCTION set_updated_at();
     `,
   },
 ]
