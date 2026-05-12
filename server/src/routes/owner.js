@@ -39,7 +39,7 @@ function getTicketTotalsByDay(dayDates) {
       `
       SELECT day_date AS dayDate, COUNT(*) AS ticketsCount, SUM(price_cents) AS expectedRevenueCents
       FROM tickets
-      WHERE day_date IN (${placeholders})
+      WHERE day_date IN (${placeholders}) AND voided_at IS NULL
       GROUP BY day_date
     `,
     )
@@ -103,7 +103,7 @@ export function attachOwnerRoutes(app) {
         `
         SELECT COUNT(*) AS ticketsCount, IFNULL(SUM(price_cents), 0) AS expectedRevenueCents
         FROM tickets
-        WHERE day_date = ?
+        WHERE day_date = ? AND voided_at IS NULL
       `,
       )
       .get(dayDate)
@@ -188,7 +188,7 @@ export function attachOwnerRoutes(app) {
           IFNULL(SUM(price_cents), 0) AS totalRevenueCents,
           COUNT(DISTINCT plate) AS uniquePlatesCount
         FROM tickets
-        WHERE day_date IN (${placeholders})
+        WHERE day_date IN (${placeholders}) AND voided_at IS NULL
       `,
       )
       .get(...days)
@@ -213,7 +213,7 @@ export function attachOwnerRoutes(app) {
         FROM (
           SELECT plate
           FROM tickets
-          WHERE day_date IN (${placeholders})
+          WHERE day_date IN (${placeholders}) AND voided_at IS NULL
           GROUP BY plate
           HAVING COUNT(*) >= 2
         ) rp
@@ -226,7 +226,7 @@ export function attachOwnerRoutes(app) {
         `
         SELECT service_type_name AS serviceTypeName, COUNT(*) AS ticketsCount, IFNULL(SUM(price_cents), 0) AS revenueCents
         FROM tickets
-        WHERE day_date IN (${placeholders})
+        WHERE day_date IN (${placeholders}) AND voided_at IS NULL
         GROUP BY service_type_name
         ORDER BY revenueCents DESC, ticketsCount DESC
       `,
@@ -238,7 +238,7 @@ export function attachOwnerRoutes(app) {
         `
         SELECT substr(created_at, 12, 2) AS hour, COUNT(*) AS ticketsCount, IFNULL(SUM(price_cents), 0) AS revenueCents
         FROM tickets
-        WHERE day_date IN (${placeholders})
+        WHERE day_date IN (${placeholders}) AND voided_at IS NULL
         GROUP BY hour
         ORDER BY hour ASC
       `,
@@ -259,7 +259,7 @@ export function attachOwnerRoutes(app) {
         `
         SELECT payment_method AS paymentMethod, COUNT(*) AS ticketsCount, IFNULL(SUM(price_cents), 0) AS revenueCents
         FROM tickets
-        WHERE day_date IN (${placeholders})
+        WHERE day_date IN (${placeholders}) AND voided_at IS NULL
         GROUP BY payment_method
       `,
       )
@@ -286,7 +286,7 @@ export function attachOwnerRoutes(app) {
           `
           SELECT day_date AS key, day_date AS label, COUNT(*) AS ticketsCount, IFNULL(SUM(price_cents), 0) AS revenueCents
           FROM tickets
-          WHERE day_date IN (${placeholders})
+          WHERE day_date IN (${placeholders}) AND voided_at IS NULL
           GROUP BY day_date
         `,
         )
@@ -325,7 +325,7 @@ export function attachOwnerRoutes(app) {
             COUNT(*) AS ticketsCount,
             IFNULL(SUM(price_cents), 0) AS revenueCents
           FROM tickets
-          WHERE day_date IN (${placeholders})
+          WHERE day_date IN (${placeholders}) AND voided_at IS NULL
           GROUP BY weekStart
           ORDER BY weekStart ASC
         `,
@@ -383,7 +383,7 @@ export function attachOwnerRoutes(app) {
             COUNT(*) AS ticketsCount,
             IFNULL(SUM(price_cents), 0) AS revenueCents
           FROM tickets
-          WHERE day_date IN (${placeholders})
+          WHERE day_date IN (${placeholders}) AND voided_at IS NULL
           GROUP BY ym
           ORDER BY ym ASC
         `,
@@ -503,12 +503,15 @@ export function attachOwnerRoutes(app) {
           t.service_type_id AS serviceTypeId,
           t.service_type_name AS serviceTypeName,
           t.base_price_cents AS basePriceCents,
+          t.discount_cents AS discountCents,
+          t.discount_reason AS discountReason,
+          t.override_note AS overrideNote,
           t.price_cents AS priceCents,
           t.price_overridden AS priceOverridden,
           t.payment_method AS paymentMethod,
           t.created_at AS createdAt
         FROM tickets t
-        WHERE t.day_date = ?
+        WHERE t.day_date = ? AND t.voided_at IS NULL
         ORDER BY t.ticket_number DESC
       `,
       )
@@ -534,5 +537,75 @@ export function attachOwnerRoutes(app) {
       .get(dayDate)
 
     res.json({ dayDate, tickets, reconciliation: reconciliation ?? null })
+  })
+
+  app.get('/api/owner/cash-audit/:dayDate', requireRole('owner'), (req, res) => {
+    const schema = z.object({ dayDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })
+    const parsed = schema.safeParse(req.params)
+    if (!parsed.success) return res.status(400).json({ error: 'invalid_date' })
+    const dayDate = parsed.data.dayDate
+
+    const rows = db
+      .prepare(
+        `
+        SELECT
+          t.ticket_number AS ticketNumber,
+          t.plate AS plate,
+          t.payment_method AS paymentMethod,
+          t.base_price_cents AS basePriceCents,
+          t.discount_cents AS discountCents,
+          t.discount_reason AS discountReason,
+          t.override_note AS overrideNote,
+          t.price_cents AS priceCents,
+          t.price_overridden AS priceOverridden,
+          t.voided_at AS voidedAt,
+          t.void_reason AS voidReason,
+          t.created_at AS createdAt
+        FROM tickets t
+        WHERE t.day_date = ?
+        ORDER BY t.ticket_number ASC
+      `,
+      )
+      .all(dayDate)
+
+    const active = rows.filter((r) => !r.voidedAt)
+    let expectedRevenueCents = 0
+    let expectedCashCents = 0
+    for (const r of active) {
+      expectedRevenueCents += r.priceCents
+      if (r.paymentMethod === 'cash') expectedCashCents += r.priceCents
+    }
+
+    const ticketNumbers = rows.map((r) => r.ticketNumber)
+    const minTicket = ticketNumbers.length ? Math.min(...ticketNumbers) : null
+    const maxTicket = ticketNumbers.length ? Math.max(...ticketNumbers) : null
+    const set = new Set(ticketNumbers)
+    const missing = []
+    if (minTicket !== null && maxTicket !== null) {
+      for (let n = minTicket; n <= maxTicket; n += 1) {
+        if (!set.has(n)) missing.push(n)
+        if (missing.length >= 200) break
+      }
+    }
+
+    const flagged = rows
+      .filter((r) => r.priceOverridden || (r.discountCents ?? 0) > 0 || r.voidedAt)
+      .slice(0, 200)
+
+    res.json({
+      dayDate,
+      summary: {
+        ticketsCount: active.length,
+        expectedRevenueCents,
+        expectedCashCents,
+        minTicketNumber: minTicket,
+        maxTicketNumber: maxTicket,
+        missingTicketNumbers: missing,
+        overridesCount: rows.filter((r) => r.priceOverridden).length,
+        discountsCount: rows.filter((r) => (r.discountCents ?? 0) > 0).length,
+        voidedCount: rows.filter((r) => r.voidedAt).length,
+      },
+      flaggedTickets: flagged,
+    })
   })
 }

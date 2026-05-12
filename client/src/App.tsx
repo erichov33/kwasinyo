@@ -9,6 +9,8 @@ import { OwnerDashboard } from './pages/OwnerDashboard'
 import { OwnerPriceBoard } from './pages/OwnerPriceBoard'
 import { OwnerDay } from './pages/OwnerDay'
 import { OwnerReports } from './pages/OwnerReports'
+import { OwnerCustomers } from './pages/OwnerCustomers'
+import { OwnerCustomerDetail } from './pages/OwnerCustomerDetail'
 
 function App() {
   const { bootstrapped, apiError, user, refresh } = useAuth()
@@ -58,6 +60,8 @@ function App() {
         <>
           <Route path="/owner" element={<OwnerDashboard />} />
           <Route path="/owner/reports" element={<OwnerReports />} />
+          <Route path="/owner/customers" element={<OwnerCustomers />} />
+          <Route path="/owner/customers/:id" element={<OwnerCustomerDetail />} />
           <Route path="/owner/price-board" element={<OwnerPriceBoard />} />
           <Route path="/owner/day/:date" element={<OwnerDay />} />
           <Route path="*" element={<Navigate to="/owner" replace />} />

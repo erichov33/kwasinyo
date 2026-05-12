@@ -57,12 +57,27 @@ export function initDb() {
       base_price_cents INTEGER NOT NULL CHECK (base_price_cents >= 0),
       price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
       price_overridden INTEGER NOT NULL DEFAULT 0 CHECK (price_overridden IN (0,1)),
+      discount_cents INTEGER NOT NULL DEFAULT 0 CHECK (discount_cents >= 0),
+      discount_reason TEXT,
+      override_note TEXT,
       payment_method TEXT NOT NULL CHECK (payment_method IN ('cash','card','other')),
       cashier_user_id INTEGER NOT NULL REFERENCES users(id),
+      voided_at TEXT,
+      void_reason TEXT,
+      voided_by_user_id INTEGER,
       created_at TEXT NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_tickets_day_date ON tickets(day_date);
+
+    CREATE TABLE IF NOT EXISTS ticket_audits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+      action TEXT NOT NULL,
+      actor_user_id INTEGER NOT NULL REFERENCES users(id),
+      payload_json TEXT,
+      created_at TEXT NOT NULL
+    );
 
     CREATE TABLE IF NOT EXISTS day_reconciliations (
       day_date TEXT PRIMARY KEY,
@@ -75,9 +90,37 @@ export function initDb() {
       owner_confirmed_at TEXT,
       owner_note TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS customers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL DEFAULT '',
+      phone TEXT,
+      notes TEXT,
+      active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS customer_plates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      plate TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS loyalty_rewards (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      type TEXT NOT NULL CHECK (type IN ('free_wash')),
+      note TEXT,
+      granted_at TEXT NOT NULL,
+      redeemed_at TEXT
+    );
   `)
 
   ensureTicketNameColumns()
+  ensureTicketCashColumns()
+  ensureCustomerColumns()
   seedDefaults()
 }
 
@@ -103,6 +146,47 @@ function ensureTicketNameColumns() {
     SET service_type_name = (SELECT name FROM service_types WHERE id = tickets.service_type_id)
     WHERE service_type_name = '';
   `)
+}
+
+function ensureTicketCashColumns() {
+  const cols = db.prepare("PRAGMA table_info('tickets')").all().map((r) => r.name)
+  if (!cols.includes('discount_cents')) {
+    db.exec("ALTER TABLE tickets ADD COLUMN discount_cents INTEGER NOT NULL DEFAULT 0 CHECK (discount_cents >= 0)")
+  }
+  if (!cols.includes('discount_reason')) {
+    db.exec('ALTER TABLE tickets ADD COLUMN discount_reason TEXT')
+  }
+  if (!cols.includes('override_note')) {
+    db.exec('ALTER TABLE tickets ADD COLUMN override_note TEXT')
+  }
+  if (!cols.includes('voided_at')) {
+    db.exec('ALTER TABLE tickets ADD COLUMN voided_at TEXT')
+  }
+  if (!cols.includes('void_reason')) {
+    db.exec('ALTER TABLE tickets ADD COLUMN void_reason TEXT')
+  }
+  if (!cols.includes('voided_by_user_id')) {
+    db.exec('ALTER TABLE tickets ADD COLUMN voided_by_user_id INTEGER')
+  }
+}
+
+function ensureCustomerColumns() {
+  const customerCols = db.prepare("PRAGMA table_info('customers')").all().map((r) => r.name)
+  if (!customerCols.includes('notes')) {
+    db.exec("ALTER TABLE customers ADD COLUMN notes TEXT")
+  }
+  if (!customerCols.includes('phone')) {
+    db.exec("ALTER TABLE customers ADD COLUMN phone TEXT")
+  }
+  if (!customerCols.includes('active')) {
+    db.exec("ALTER TABLE customers ADD COLUMN active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1))")
+  }
+  if (!customerCols.includes('created_at')) {
+    db.exec("ALTER TABLE customers ADD COLUMN created_at TEXT NOT NULL DEFAULT ''")
+  }
+  if (!customerCols.includes('updated_at')) {
+    db.exec("ALTER TABLE customers ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
+  }
 }
 
 function seedDefaults() {

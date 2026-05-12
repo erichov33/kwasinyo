@@ -318,6 +318,36 @@ label {
   gap: 10px;
 }
 
+.link {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.tags {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tag {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: 999px;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.tag__x {
+  opacity: 0.65;
+  font-weight: 900;
+}
+
 .listrow {
   display: flex;
   justify-content: space-between;
@@ -469,6 +499,12 @@ label {
   gap: 10px;
   padding: 12px 0;
   border-bottom: 1px solid var(--border);
+}
+
+.trow--head {
+  color: var(--muted);
+  font-weight: 900;
+  font-size: 13px;
 }
 
 @media (max-width: 720px) {
@@ -730,6 +766,10 @@ label {
   grid-template-columns: 1fr 1fr 1fr 1fr 170px;
   gap: 12px;
   align-items: end;
+}
+
+.filterBar__grid--customers {
+  grid-template-columns: 1fr 170px;
 }
 
 @media (max-width: 920px) {

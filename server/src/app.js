@@ -7,6 +7,7 @@ import { attachPriceBoardRoutes } from './routes/priceBoard.js'
 import { attachTicketRoutes } from './routes/tickets.js'
 import { attachCloseoutRoutes } from './routes/closeout.js'
 import { attachOwnerRoutes } from './routes/owner.js'
+import { attachCustomerRoutes } from './routes/customers.js'
 
 export function createApp() {
   initDb()
@@ -35,6 +36,7 @@ export function createApp() {
   attachTicketRoutes(app)
   attachCloseoutRoutes(app)
   attachOwnerRoutes(app)
+  attachCustomerRoutes(app)
 
   app.get('/api/health', (_req, res) => res.json({ ok: true }))
 

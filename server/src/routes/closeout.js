@@ -9,7 +9,7 @@ function computeDayTotals(dayDate) {
       `
       SELECT payment_method AS paymentMethod, price_cents AS priceCents
       FROM tickets
-      WHERE day_date = ?
+      WHERE day_date = ? AND voided_at IS NULL
     `,
     )
     .all(dayDate)
@@ -119,4 +119,3 @@ export function attachCloseoutRoutes(app) {
     res.json({ ok: true, reconciliation: getReconciliation(parsed.data.dayDate) })
   })
 }
-
