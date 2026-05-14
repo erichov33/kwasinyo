@@ -8,6 +8,7 @@ import { attachTicketRoutes } from './routes/tickets.js'
 import { attachCloseoutRoutes } from './routes/closeout.js'
 import { attachOwnerRoutes } from './routes/owner.js'
 import { attachCustomerRoutes } from './routes/customers.js'
+import { attachKitchenRoutes } from './routes/kitchen.js'
 
 export async function createApp() {
   await initDb()
@@ -39,6 +40,7 @@ export async function createApp() {
   attachAuthRoutes(app)
   attachPriceBoardRoutes(app)
   attachTicketRoutes(app)
+  attachKitchenRoutes(app)
   attachCloseoutRoutes(app)
   attachOwnerRoutes(app)
   attachCustomerRoutes(app)

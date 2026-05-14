@@ -1,36 +1,45 @@
 import { useMemo, useState } from 'react'
-import { ButtonGrid } from '../components/ButtonGrid'
+import { Link } from 'react-router-dom'
 import { BottomBar } from '../components/BottomBar'
-import { Badge } from '../components/Badge'
 import { AppShell } from '../components/AppShell'
 import { api } from '../lib/api'
 import { cashierNav } from '../lib/nav'
 import { usePriceBoard } from '../hooks/usePriceBoard'
-import { useTodaySummary } from '../hooks/useTodaySummary'
-import { useTodayTickets } from '../hooks/useTodayTickets'
-import { formatMoneyCents, parseMoneyToCents } from '../lib/money'
+import { formatMoneyCents } from '../lib/money'
 
 export function CashierTicket() {
   const [plate, setPlate] = useState('')
   const { data: board, error: boardError } = usePriceBoard({ activeOnly: true })
   const [vehicleTypeId, setVehicleTypeId] = useState<number | null>(null)
   const [serviceTypeId, setServiceTypeId] = useState<number | null>(null)
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'other'>('cash')
-  const [override, setOverride] = useState(false)
-  const [overrideInput, setOverrideInput] = useState('')
-  const [overrideNote, setOverrideNote] = useState('')
-  const [discountOn, setDiscountOn] = useState(false)
-  const [discountInput, setDiscountInput] = useState('')
-  const [discountReason, setDiscountReason] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash')
   const [lastTicket, setLastTicket] = useState<{ ticketNumber: number; ticketLabel: string; priceCents: number } | null>(null)
-  const { data: summary, error: summaryError, reload: reloadSummary } = useTodaySummary()
-  const { tickets, error: ticketsError, reload: reloadTickets } = useTodayTickets()
   const [error, setError] = useState<string | null>(null)
-  const showError = error ?? boardError ?? summaryError ?? ticketsError
+  const showError = error ?? boardError
 
   const vehicleTypes = board?.vehicleTypes ?? []
   const serviceTypes = board?.serviceTypes ?? []
   const prices = board?.prices ?? []
+
+  const vehicleOptions = useMemo(() => {
+    const preferred = ['Sedan', 'SUV', 'Bakkie', 'Minivan']
+    if (vehicleTypes.length === 0) return []
+    const byName = new Map(vehicleTypes.map((v) => [v.name.toLowerCase(), v]))
+    const ordered = preferred
+      .map((n) => byName.get(n.toLowerCase()))
+      .filter((v): v is (typeof vehicleTypes)[number] => Boolean(v))
+    return ordered.length >= 2 ? ordered : vehicleTypes
+  }, [vehicleTypes])
+
+  const serviceOptions = useMemo(() => {
+    const preferred = ['Basic Wash', 'Full Wash', 'Premium wash']
+    if (serviceTypes.length === 0) return []
+    const byName = new Map(serviceTypes.map((s) => [s.name.toLowerCase(), s]))
+    const ordered = preferred
+      .map((n) => byName.get(n.toLowerCase()))
+      .filter((s): s is (typeof serviceTypes)[number] => Boolean(s))
+    return ordered.length >= 2 ? ordered : serviceTypes
+  }, [serviceTypes])
 
   const priceKey = useMemo(() => {
     if (!vehicleTypeId || !serviceTypeId) return null
@@ -43,28 +52,19 @@ export function CashierTicket() {
     return row ? row.priceCents : null
   }, [priceKey, prices, vehicleTypeId, serviceTypeId])
 
-  const discountCents = useMemo(() => {
-    if (basePriceCents === null) return 0
-    if (override) return 0
-    if (!discountOn) return 0
-    const d = parseMoneyToCents(discountInput)
-    if (!Number.isFinite(d) || d < 0) return 0
-    return d
-  }, [basePriceCents, discountInput, discountOn, override])
+  const finalPriceCents = basePriceCents
+  const canIssue = Boolean(plate.trim() && vehicleTypeId && serviceTypeId && finalPriceCents !== null && finalPriceCents > 0)
 
-  const finalPriceCents = useMemo(() => {
-    if (basePriceCents === null) return null
-    if (override) return parseMoneyToCents(overrideInput)
-    return basePriceCents - discountCents
-  }, [basePriceCents, discountCents, override, overrideInput])
-
-  const discountValid = basePriceCents === null ? true : discountCents <= basePriceCents
-  const finalValid = finalPriceCents !== null && finalPriceCents > 0
-  const canIssue = Boolean(plate.trim() && vehicleTypeId && serviceTypeId && finalValid && discountValid)
+  const resetForm = () => {
+    setPlate('')
+    setVehicleTypeId(null)
+    setServiceTypeId(null)
+    setPaymentMethod('cash')
+    setError(null)
+  }
 
   const issue = async () => {
     setError(null)
-    setLastTicket(null)
     try {
       const res = await api<{ ticket: { ticketNumber: number; ticketLabel: string; priceCents: number } }>('/api/tickets', {
         method: 'POST',
@@ -74,24 +74,11 @@ export function CashierTicket() {
           serviceTypeId,
           paymentMethod,
           priceCents: finalPriceCents,
-          override,
-          overrideNote: override && overrideNote.trim() ? overrideNote.trim() : undefined,
-          discountCents: !override && discountCents > 0 ? discountCents : undefined,
-          discountReason: !override && discountCents > 0 && discountReason.trim() ? discountReason.trim() : undefined,
         }),
       })
       setLastTicket(res.ticket)
-      setPlate('')
-      setVehicleTypeId(null)
-      setServiceTypeId(null)
-      setOverride(false)
-      setOverrideInput('')
-      setOverrideNote('')
-      setDiscountOn(false)
-      setDiscountInput('')
-      setDiscountReason('')
-      setPaymentMethod('cash')
-      await Promise.all([reloadSummary(), reloadTickets()])
+      resetForm()
+      await printReceipt(res.ticket.ticketNumber)
     } catch (err: any) {
       setError(err?.message ?? 'ticket_failed')
     }
@@ -127,9 +114,6 @@ export function CashierTicket() {
       const w = window.open('', '_blank', 'noopener,noreferrer,width=420,height=720')
       if (!w) return
       const title = `KwaSinyo Receipt ${t.ticketLabel}`
-      const discountLine = t.discountCents > 0 ? `<div class="line"><span>Discount</span><span>-${formatMoneyCents(t.discountCents)}</span></div>` : ''
-      const discountReasonLine = t.discountReason ? `<div class="muted">${t.discountReason}</div>` : ''
-      const overrideLine = t.priceOverridden ? `<div class="muted">Manual price${t.overrideNote ? `: ${t.overrideNote}` : ''}</div>` : ''
 
       w.document.write(`<!doctype html>
 <html>
@@ -164,9 +148,6 @@ export function CashierTicket() {
       <div class="line"><span>Cashier</span><span>${t.cashierUsername}</span></div>
       <div class="sp"></div>
       <div class="line"><span>Base</span><span>${formatMoneyCents(t.basePriceCents)}</span></div>
-      ${discountLine}
-      ${discountReasonLine}
-      ${overrideLine}
       <div class="line total"><span>Total</span><span>${formatMoneyCents(t.priceCents)}</span></div>
       <div class="sp"></div>
       <div class="center muted">Thank you!</div>
@@ -183,13 +164,85 @@ export function CashierTicket() {
   return (
     <AppShell section="Cashier" nav={cashierNav}>
       <div className="shellInner page--with-bottom">
+        <div className="heroBanner heroBanner--carwash heroBanner--compact">
+          <div className="heroBanner__text">
+            <div className="heroBanner__kicker">New wash ticket</div>
+            <div className="heroBanner__title">
+              <span className="heroBanner__brand">KWA SINYO</span>
+              <span className="heroBanner__brandAccent">CAR WASH</span>
+            </div>
+            <div className="heroBanner__subTitle">Fast check-in. Accurate pricing.</div>
+            <div className="heroBanner__actions">
+              <Link className="btn btn--ghost" to="/cashier/closeout">
+                Close Day
+              </Link>
+            </div>
+          </div>
+
+          <div className="heroBanner__art" aria-hidden="true">
+            <svg viewBox="0 0 560 280" role="presentation" focusable="false">
+              <defs>
+                <linearGradient id="kw-car2" x1="0" x2="1" y1="0" y2="1">
+                  <stop offset="0" stopColor="rgba(96,165,250,0.85)" />
+                  <stop offset="1" stopColor="rgba(59,130,246,0.2)" />
+                </linearGradient>
+                <linearGradient id="kw-foam2" x1="0" x2="1" y1="0" y2="0">
+                  <stop offset="0" stopColor="rgba(255,255,255,0.85)" />
+                  <stop offset="1" stopColor="rgba(255,255,255,0.12)" />
+                </linearGradient>
+              </defs>
+
+              <g opacity="0.95">
+                <path
+                  d="M132 170c6-26 16-44 31-54 19-13 70-19 117-19 45 0 88 4 114 14 19 8 34 26 46 56 9 1 17 6 23 14 6 9 9 20 9 32 0 11-3 21-9 30-7 10-17 15-30 15h-24c-6 0-10-3-12-9l-5-13H167l-5 13c-2 6-7 9-12 9h-24c-13 0-23-5-30-15-6-9-9-19-9-30 0-12 3-23 9-32 6-8 14-13 23-14z"
+                  fill="url(#kw-car2)"
+                />
+                <path
+                  d="M178 143c22-18 58-25 102-25 47 0 87 7 111 25 9 7 14 18 16 33H162c2-15 7-26 16-33z"
+                  fill="rgba(255,255,255,0.14)"
+                />
+                <circle cx="198" cy="220" r="26" fill="rgba(15,23,42,0.35)" />
+                <circle cx="198" cy="220" r="16" fill="rgba(15,23,42,0.65)" />
+                <circle cx="374" cy="220" r="26" fill="rgba(15,23,42,0.35)" />
+                <circle cx="374" cy="220" r="16" fill="rgba(15,23,42,0.65)" />
+                <path d="M152 178h256" stroke="rgba(255,255,255,0.22)" strokeWidth="6" strokeLinecap="round" />
+              </g>
+
+              <g opacity="0.95">
+                <path
+                  d="M126 92c16-10 36-16 58-18 29-3 66 4 87 14 12 6 25 7 39 0 22-10 58-17 87-14 21 2 41 8 57 18-20-4-41-4-63-1-31 4-55 15-81 25-18 7-43 7-62 0-26-10-50-21-81-25-22-3-43-3-63 1z"
+                  fill="url(#kw-foam2)"
+                />
+                <circle cx="130" cy="86" r="12" fill="rgba(255,255,255,0.55)" />
+                <circle cx="170" cy="62" r="10" fill="rgba(255,255,255,0.4)" />
+                <circle cx="208" cy="86" r="8" fill="rgba(255,255,255,0.35)" />
+                <circle cx="410" cy="70" r="12" fill="rgba(255,255,255,0.45)" />
+                <circle cx="444" cy="90" r="9" fill="rgba(255,255,255,0.35)" />
+                <circle cx="470" cy="62" r="8" fill="rgba(255,255,255,0.3)" />
+              </g>
+            </svg>
+          </div>
+        </div>
+
         <div className="stack">
-          <div className="card">
+          <div className="card ticketCard">
             <div className="row">
               <h1 className="h1">New Ticket</h1>
-              {override ? <Badge tone="warn">Override</Badge> : discountCents > 0 ? <Badge tone="warn">Discount</Badge> : null}
+              <button
+                type="button"
+                className="btn btn--outline btn--small"
+                onClick={() => {
+                  resetForm()
+                  setLastTicket(null)
+                  window.scrollTo({ top: 0, behavior: 'smooth' })
+                }}
+              >
+                Return Home
+              </button>
             </div>
+
             {showError ? <div className="alert alert--bad">{showError}</div> : null}
+
             {lastTicket ? (
               <div className="alert alert--good">
                 <div className="row">
@@ -198,193 +251,79 @@ export function CashierTicket() {
                 </div>
                 <div className="row">
                   <button type="button" className="btn btn--outline btn--small" onClick={() => printReceipt(lastTicket.ticketNumber)}>
-                    Print receipt
+                    Print receipt again
                   </button>
                 </div>
               </div>
             ) : null}
 
-            {summary ? (
-              <div className="card card--sub">
-                <div className="row">
-                  <div className="muted">Today sales</div>
-                  {summary.reconciliation ? (
-                    summary.reconciliation.ownerConfirmedAt ? (
-                      <Badge tone="good">Confirmed</Badge>
-                    ) : (
-                      <Badge tone="warn">Submitted</Badge>
-                    )
-                  ) : (
-                    <Badge tone="neutral">Open</Badge>
-                  )}
-                </div>
-                <div className="row">
-                  <div className="muted">{summary.ticketsCount} tickets</div>
-                  <div className="big">{formatMoneyCents(summary.expectedRevenueCents)}</div>
-                </div>
-                <div className="muted">Expected cash: {formatMoneyCents(summary.expectedCashCents)}</div>
-              </div>
-            ) : null}
-
-            <div className="field">
-              <label>Plate number</label>
-              <input
-                value={plate}
-                onChange={(e) => setPlate(e.target.value)}
-                placeholder="e.g. KWA 123 GP"
-                autoCapitalize="characters"
-              />
-            </div>
-
-            <div className="field">
-              <label>Vehicle type</label>
-              <ButtonGrid items={vehicleTypes} selectedId={vehicleTypeId} onSelect={(v) => setVehicleTypeId(v.id)} />
-            </div>
-
-            <div className="field">
-              <label>Service</label>
-              <ButtonGrid items={serviceTypes} selectedId={serviceTypeId} onSelect={(s) => setServiceTypeId(s.id)} />
-            </div>
-
-            <div className="card card--sub">
-              <div className="row">
-                <div className="muted">Price</div>
-                <div className="big">{finalPriceCents === null ? '—' : formatMoneyCents(finalPriceCents)}</div>
-              </div>
-              {basePriceCents !== null ? (
-                <div className="muted">
-                  Base: {formatMoneyCents(basePriceCents)}
-                  {discountCents > 0 ? ` • Discount: -${formatMoneyCents(discountCents)}` : ''}
-                </div>
-              ) : null}
-
-              <div className="row">
-                <button
-                  type="button"
-                  className={paymentMethod === 'cash' ? 'seg seg--active' : 'seg'}
-                  onClick={() => setPaymentMethod('cash')}
-                >
-                  Cash
-                </button>
-                <button
-                  type="button"
-                  className={paymentMethod === 'card' ? 'seg seg--active' : 'seg'}
-                  onClick={() => setPaymentMethod('card')}
-                >
-                  Card
-                </button>
-                <button
-                  type="button"
-                  className={paymentMethod === 'other' ? 'seg seg--active' : 'seg'}
-                  onClick={() => setPaymentMethod('other')}
-                >
-                  Other
-                </button>
+            <div className="ticketForm">
+              <div className="field">
+                <label>Plate Number</label>
+                <input
+                  value={plate}
+                  onChange={(e) => setPlate(e.target.value)}
+                  placeholder="e.g. KWA 123 GP"
+                  autoCapitalize="characters"
+                  required
+                />
               </div>
 
-              <div className="row">
-                <button
-                  type="button"
-                  className={override ? 'chip chip--warn' : 'chip'}
-                  onClick={() => {
-                    const next = !override
-                    setOverride(next)
-                    if (next) {
-                      setDiscountOn(false)
-                      setDiscountInput('')
-                      setDiscountReason('')
-                    }
-                  }}
+              <div className="field">
+                <label>Vehicle Type</label>
+                <select
+                  className="select"
+                  value={vehicleTypeId ?? ''}
+                  onChange={(e) => setVehicleTypeId(e.target.value ? Number(e.target.value) : null)}
+                  required
                 >
-                  Manual price
-                </button>
-                {override ? (
-                  <>
-                    <input
-                      className="money"
-                      inputMode="decimal"
-                      value={overrideInput}
-                      onChange={(e) => setOverrideInput(e.target.value)}
-                      placeholder="Amount"
-                    />
-                    <input
-                      className="money"
-                      value={overrideNote}
-                      onChange={(e) => setOverrideNote(e.target.value)}
-                      placeholder="Reason (optional)"
-                    />
-                  </>
-                ) : null}
+                  <option value="" disabled>
+                    Select vehicle type
+                  </option>
+                  {vehicleOptions.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              <div className="row">
-                <button
-                  type="button"
-                  className={discountOn ? 'chip chip--warn' : 'chip'}
-                  onClick={() => {
-                    const next = !discountOn
-                    setDiscountOn(next)
-                    if (next) {
-                      setOverride(false)
-                      setOverrideInput('')
-                      setOverrideNote('')
-                    } else {
-                      setDiscountInput('')
-                      setDiscountReason('')
-                    }
-                  }}
+              <div className="field">
+                <label>Services</label>
+                <select
+                  className="select"
+                  value={serviceTypeId ?? ''}
+                  onChange={(e) => setServiceTypeId(e.target.value ? Number(e.target.value) : null)}
+                  required
                 >
-                  Discount
-                </button>
-                {discountOn ? (
-                  <>
-                    <input
-                      className="money"
-                      inputMode="decimal"
-                      value={discountInput}
-                      onChange={(e) => setDiscountInput(e.target.value)}
-                      placeholder="Amount"
-                    />
-                    <input
-                      className="money"
-                      value={discountReason}
-                      onChange={(e) => setDiscountReason(e.target.value)}
-                      placeholder="Reason (optional)"
-                    />
-                  </>
-                ) : null}
+                  <option value="" disabled>
+                    Select service
+                  </option>
+                  {serviceOptions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              {!discountValid ? <div className="muted">Discount cannot exceed base price.</div> : null}
+              <div className="field">
+                <label>Cash or Card Payment</label>
+                <select className="select" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as 'cash' | 'card')} required>
+                  <option value="cash">Cash</option>
+                  <option value="card">Card</option>
+                </select>
+              </div>
             </div>
 
-            <button type="button" className="primary" disabled={!canIssue} onClick={() => issue()}>
-              Confirm payment & issue ticket
-            </button>
-          </div>
-
-          <div className="card">
-            <div className="row">
-              <h2 className="h2">Today</h2>
-              <div className="muted">{tickets.length} tickets</div>
-            </div>
-            <div className="list">
-              {tickets.slice(0, 10).map((t) => (
-                <div key={t.ticketNumber} className="listrow">
-                  <div className="listrow__main">
-                    <div className="listrow__title">
-                      #{String(t.ticketNumber).padStart(4, '0')} {t.plate}
-                    </div>
-                    <div className="listrow__sub">
-                      {t.vehicleTypeName} · {t.serviceTypeName} · {t.paymentMethod.toUpperCase()}
-                      {t.discountCents > 0 ? ` · DISCOUNT -${formatMoneyCents(t.discountCents)}` : ''}
-                      {t.priceOverridden ? ' · OVERRIDE' : ''}
-                    </div>
-                  </div>
-                  <div className="listrow__amount">{formatMoneyCents(t.priceCents)}</div>
-                </div>
-              ))}
-              {tickets.length === 0 ? <div className="muted">No tickets yet.</div> : null}
+            <div className="ticketFooter">
+              <div className="ticketPrice" aria-live="polite">
+                <div className="ticketPrice__label">Price</div>
+                <div className="ticketPrice__value">{finalPriceCents === null ? '—' : formatMoneyCents(finalPriceCents)}</div>
+              </div>
+              <button type="button" className="primary" disabled={!canIssue} onClick={() => issue()}>
+                Confirm payment & issue receipt
+              </button>
             </div>
           </div>
         </div>
@@ -392,6 +331,7 @@ export function CashierTicket() {
         <BottomBar
           items={[
             { to: '/cashier', label: 'New Ticket', end: true },
+            { to: '/cashier/kitchen', label: 'Kitchen' },
             { to: '/cashier/closeout', label: 'Close Day' },
           ]}
         />

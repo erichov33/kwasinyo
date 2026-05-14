@@ -19,10 +19,14 @@ type Customer = {
 
 type Stats = {
   totalVisits: number
+  firstVisitAt: string | null
   lastVisitAt: string | null
   visitsLast30: number
   visitsLast90: number
   avgRevenueCents: number
+  totalSpendCents: number
+  preferredWash: string | null
+  preferredVehicleType: string | null
 }
 
 type Loyalty = {
@@ -253,12 +257,14 @@ export function OwnerCustomerDetail() {
                 <div className="statCard__value">{detail.stats.totalVisits}</div>
               </div>
               <div className="statCard">
-                <div className="statCard__label">Visits (30d)</div>
-                <div className="statCard__value">{detail.stats.visitsLast30}</div>
+                <div className="statCard__label">Total spend</div>
+                <div className="statCard__value">{formatMoneyCents(detail.stats.totalSpendCents)}</div>
               </div>
               <div className="statCard">
-                <div className="statCard__label">Avg / visit</div>
-                <div className="statCard__value">{formatMoneyCents(detail.stats.avgRevenueCents)}</div>
+                <div className="statCard__label">First visit</div>
+                <div className="statCard__value">
+                  {detail.stats.firstVisitAt ? new Date(detail.stats.firstVisitAt).toLocaleDateString() : '—'}
+                </div>
               </div>
               <div className="statCard">
                 <div className="statCard__label">Last visit</div>
@@ -269,6 +275,49 @@ export function OwnerCustomerDetail() {
             </div>
           ) : null}
         </div>
+
+        {detail ? (
+          <div className="card">
+            <div className="row">
+              <h2 className="h2">Customer Profile</h2>
+              <div className="muted">{detail.customer.active ? 'Active' : 'Inactive'}</div>
+            </div>
+
+            <div className="kv">
+              <div className="listrow">
+                <div>
+                  <div className="listrow__title">License Plate</div>
+                  <div className="listrow__sub">{detail.plates.length ? detail.plates.join(', ') : '—'}</div>
+                </div>
+                <div className="listrow__amount">{detail.plates.length ? detail.plates.length : '—'}</div>
+              </div>
+
+              <div className="listrow">
+                <div>
+                  <div className="listrow__title">Phone Number</div>
+                  <div className="listrow__sub">{detail.customer.phone ?? '—'}</div>
+                </div>
+                <div className="listrow__amount"></div>
+              </div>
+
+              <div className="listrow">
+                <div>
+                  <div className="listrow__title">Vehicle type</div>
+                  <div className="listrow__sub">{detail.stats.preferredVehicleType ?? '—'}</div>
+                </div>
+                <div className="listrow__amount"></div>
+              </div>
+
+              <div className="listrow">
+                <div>
+                  <div className="listrow__title">Preferred wash</div>
+                  <div className="listrow__sub">{detail.stats.preferredWash ?? '—'}</div>
+                </div>
+                <div className="listrow__amount"></div>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <div className="dashGrid">
           <div className="card">

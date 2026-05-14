@@ -4,6 +4,7 @@ import { useAuth } from './state/auth'
 import { Bootstrap } from './pages/Bootstrap'
 import { Login } from './pages/Login'
 import { CashierTicket } from './pages/CashierTicket'
+import { CashierKitchen } from './pages/CashierKitchen'
 import { CashierCloseout } from './pages/CashierCloseout'
 import { OwnerDashboard } from './pages/OwnerDashboard'
 import { OwnerPriceBoard } from './pages/OwnerPriceBoard'
@@ -11,6 +12,18 @@ import { OwnerDay } from './pages/OwnerDay'
 import { OwnerReports } from './pages/OwnerReports'
 import { OwnerCustomers } from './pages/OwnerCustomers'
 import { OwnerCustomerDetail } from './pages/OwnerCustomerDetail'
+
+function isoDayDate(dt: Date) {
+  const y = dt.getFullYear()
+  const m = String(dt.getMonth() + 1).padStart(2, '0')
+  const d = String(dt.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+function OwnerTodayRedirect() {
+  const today = isoDayDate(new Date())
+  return <Navigate to={`/owner/day/${today}`} replace />
+}
 
 function App() {
   const { bootstrapped, apiError, user, refresh } = useAuth()
@@ -53,12 +66,18 @@ function App() {
       ) : user.role === 'cashier' ? (
         <>
           <Route path="/cashier" element={<CashierTicket />} />
+          <Route path="/cashier/kitchen" element={<CashierKitchen />} />
           <Route path="/cashier/closeout" element={<CashierCloseout />} />
           <Route path="*" element={<Navigate to="/cashier" replace />} />
         </>
       ) : (
         <>
           <Route path="/owner" element={<OwnerDashboard />} />
+          <Route path="/owner/day/today" element={<OwnerTodayRedirect />} />
+          <Route path="/owner/new-ticket" element={<OwnerTodayRedirect />} />
+          <Route path="/owner/vehicle-models" element={<Navigate to="/owner" replace />} />
+          <Route path="/owner/users" element={<Navigate to="/owner" replace />} />
+          <Route path="/owner/settings" element={<Navigate to="/owner" replace />} />
           <Route path="/owner/reports" element={<OwnerReports />} />
           <Route path="/owner/customers" element={<OwnerCustomers />} />
           <Route path="/owner/customers/:id" element={<OwnerCustomerDetail />} />

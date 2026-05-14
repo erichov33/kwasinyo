@@ -30,10 +30,14 @@ async function computeCustomerStats(customerId) {
   if (plates.length === 0) {
     return {
       totalVisits: 0,
+      firstVisitAt: null,
       lastVisitAt: null,
       visitsLast30: 0,
       visitsLast90: 0,
       avgRevenueCents: 0,
+      totalSpendCents: 0,
+      preferredWash: null,
+      preferredVehicleType: null,
     }
   }
   const { clause, params } = buildInClause(plates, 1)
@@ -46,6 +50,7 @@ async function computeCustomerStats(customerId) {
       SELECT
         COUNT(*)::int AS "totalVisits",
         COALESCE(SUM(price_cents), 0)::int AS "totalRevenueCents",
+        MIN(created_at) AS "firstVisitAt",
         MAX(created_at) AS "lastVisitAt"
       FROM tickets
       WHERE plate IN ${clause} AND voided_at IS NULL
@@ -74,12 +79,46 @@ async function computeCustomerStats(customerId) {
   const totalVisits = totals.rows[0]?.totalVisits ?? 0
   const totalRevenueCents = totals.rows[0]?.totalRevenueCents ?? 0
 
+  const preferredWashRes = await query(
+    `
+      SELECT
+        service_type_name AS name,
+        COUNT(*)::int AS c,
+        MAX(created_at) AS last_at
+      FROM tickets
+      WHERE plate IN ${clause} AND voided_at IS NULL
+      GROUP BY service_type_name
+      ORDER BY c DESC, last_at DESC NULLS LAST, name ASC
+      LIMIT 1
+    `,
+    params,
+  )
+
+  const preferredVehicleRes = await query(
+    `
+      SELECT
+        vehicle_type_name AS name,
+        COUNT(*)::int AS c,
+        MAX(created_at) AS last_at
+      FROM tickets
+      WHERE plate IN ${clause} AND voided_at IS NULL
+      GROUP BY vehicle_type_name
+      ORDER BY c DESC, last_at DESC NULLS LAST, name ASC
+      LIMIT 1
+    `,
+    params,
+  )
+
   return {
     totalVisits,
+    firstVisitAt: totals.rows[0]?.firstVisitAt ?? null,
     lastVisitAt: totals.rows[0]?.lastVisitAt ?? null,
     visitsLast30: last30.rows[0]?.visitsLast30 ?? 0,
     visitsLast90: last90.rows[0]?.visitsLast90 ?? 0,
     avgRevenueCents: totalVisits > 0 ? Math.round(totalRevenueCents / totalVisits) : 0,
+    totalSpendCents: totalRevenueCents,
+    preferredWash: preferredWashRes.rows[0]?.name ?? null,
+    preferredVehicleType: preferredVehicleRes.rows[0]?.name ?? null,
   }
 }
 

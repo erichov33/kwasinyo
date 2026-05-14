@@ -118,6 +118,7 @@ export function CashierCloseout() {
         <BottomBar
           items={[
             { to: '/cashier', label: 'New Ticket', end: true },
+            { to: '/cashier/kitchen', label: 'Kitchen' },
             { to: '/cashier/closeout', label: 'Close Day' },
           ]}
         />
