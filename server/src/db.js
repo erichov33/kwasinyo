@@ -5,7 +5,19 @@ const { Pool } = pg
 const connectionString = process.env.DATABASE_URL ?? process.env.SUPABASE_DATABASE_URL ?? ''
 const sslEnabled = process.env.PGSSL === 'false' ? false : { rejectUnauthorized: false }
 
-export const pool = connectionString ? new Pool({ connectionString, ssl: sslEnabled }) : null
+const connectTimeoutMs = Number(process.env.PG_CONNECT_TIMEOUT_MS ?? 8000)
+const queryTimeoutMs = Number(process.env.PG_QUERY_TIMEOUT_MS ?? 15000)
+
+export const pool = connectionString
+  ? new Pool({
+      connectionString,
+      ssl: sslEnabled,
+      connectionTimeoutMillis: Number.isFinite(connectTimeoutMs) && connectTimeoutMs > 0 ? connectTimeoutMs : 8000,
+      query_timeout: Number.isFinite(queryTimeoutMs) && queryTimeoutMs > 0 ? queryTimeoutMs : 15000,
+      max: 5,
+      idleTimeoutMillis: 10_000,
+    })
+  : null
 
 export async function query(text, params = []) {
   if (!pool) throw new Error('Missing DATABASE_URL (Supabase Postgres connection string)')

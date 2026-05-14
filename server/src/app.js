@@ -10,8 +10,20 @@ import { attachOwnerRoutes } from './routes/owner.js'
 import { attachCustomerRoutes } from './routes/customers.js'
 import { attachKitchenRoutes } from './routes/kitchen.js'
 
+async function withTimeout(promise, ms, label) {
+  let t = null
+  const timeout = new Promise((_, reject) => {
+    t = setTimeout(() => reject(new Error(`${label}_timeout`)), ms)
+  })
+  try {
+    return await Promise.race([promise, timeout])
+  } finally {
+    if (t) clearTimeout(t)
+  }
+}
+
 export async function createApp() {
-  await initDb()
+  await withTimeout(initDb(), Number(process.env.DB_INIT_TIMEOUT_MS ?? 15_000), 'db_init')
 
   const app = express()
   app.disable('x-powered-by')

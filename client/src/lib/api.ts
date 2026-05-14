@@ -1,16 +1,39 @@
 export type ApiError = { error: string }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-  })
+  const timeoutMs = Number((globalThis as any).__KW_API_TIMEOUT_MS ?? 15_000)
+  const controller = init?.signal ? null : new AbortController()
+  const timeoutId =
+    controller && Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? window.setTimeout(() => controller.abort(), timeoutMs)
+      : null
+
+  let res: Response
+  try {
+    res = await fetch(path, {
+      ...init,
+      signal: init?.signal ?? controller?.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init?.headers ?? {}),
+      },
+    })
+  } catch (e: any) {
+    if (e?.name === 'AbortError') throw new Error('api_timeout')
+    throw e
+  } finally {
+    if (timeoutId !== null) window.clearTimeout(timeoutId)
+  }
 
   const text = await res.text()
-  const data = text ? JSON.parse(text) : null
+  let data: any = null
+  if (text) {
+    try {
+      data = JSON.parse(text)
+    } catch {
+      data = null
+    }
+  }
 
   if (!res.ok) {
     const msg = (data && typeof data.error === 'string' && data.error) || 'request_failed'
@@ -22,4 +45,3 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
   return data as T
 }
-
