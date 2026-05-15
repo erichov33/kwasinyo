@@ -16,6 +16,12 @@ async function withTimeout(promise, ms) {
 
 export default async function handler(req, res) {
   try {
+    if (typeof req?.url === 'string' && req.url.startsWith('/api/health')) {
+      res.statusCode = 200
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({ ok: true }))
+      return
+    }
     const app = await withTimeout(appPromise, Number(process.env.APP_INIT_TIMEOUT_MS ?? 8000))
     return app(req, res)
   } catch (e) {
@@ -26,4 +32,3 @@ export default async function handler(req, res) {
     } catch {}
   }
 }
-
